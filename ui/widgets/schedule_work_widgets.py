@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from PySide6.QtCore import QDate, QLocale, QSize, Qt, Signal
+from PySide6.QtCore import QDate, QEvent, QLocale, QSize, Qt, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -46,8 +46,10 @@ from core.resource import (
     COLOR_TEXT_LIGHT,
     COLOR_TEXT_PRIMARY,
     CONTENT_FONT,
+    EVEN_ROW_BG_COLOR,
     GRID_LINES_COLOR,
     HOVER_ROW_BG_COLOR,
+    ODD_ROW_BG_COLOR,
     ROW_HEIGHT,
     FONT_WEIGHT_NORMAL,
     FONT_WEIGHT_SEMIBOLD,
@@ -62,8 +64,91 @@ from core.resource import (
     resource_path,
 )
 
+from core.ui_settings import get_schedule_work_table_ui, ui_settings_bus
+
 
 _BTN_HOVER_BG = COLOR_BUTTON_PRIMARY_HOVER
+
+
+def _to_alignment_flag(align: str) -> Qt.AlignmentFlag:
+    a = str(align or "").strip().lower()
+    if a == "center":
+        return Qt.AlignmentFlag.AlignCenter
+    if a == "right":
+        return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+    return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+
+
+def _apply_schedule_work_table_ui(
+    table: QTableWidget,
+    *,
+    column_key_by_index: dict[int, str],
+    skip_font_keys: set[str] | None = None,
+) -> None:
+    ui = get_schedule_work_table_ui()
+
+    body_font_normal = QFont(UI_FONT, int(ui.font_size))
+    body_font_normal.setWeight(QFont.Weight.Normal)
+    body_font_bold = QFont(UI_FONT, int(ui.font_size))
+    body_font_bold.setWeight(QFont.Weight.DemiBold)
+
+    base_body = body_font_bold if ui.font_weight == "bold" else body_font_normal
+    table.setFont(base_body)
+
+    header_font = QFont(UI_FONT, int(ui.header_font_size))
+    header_font.setWeight(
+        QFont.Weight.DemiBold
+        if ui.header_font_weight == "bold"
+        else QFont.Weight.Normal
+    )
+    try:
+        table.horizontalHeader().setFont(header_font)
+        w = 600 if ui.header_font_weight == "bold" else 400
+        table.horizontalHeader().setStyleSheet(
+            f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {int(w)}; }}"
+        )
+    except Exception:
+        pass
+
+    skip_font_keys = set(skip_font_keys or set())
+
+    # Header alignment per column (when header item exists)
+    for c in range(int(table.columnCount())):
+        key = column_key_by_index.get(int(c), "")
+        if not key:
+            continue
+        flag = _to_alignment_flag((ui.column_align or {}).get(key, "left"))
+        try:
+            hi = table.horizontalHeaderItem(int(c))
+            if hi is not None:
+                hi.setTextAlignment(flag)
+        except Exception:
+            pass
+
+    # Body alignment + weight per column
+    for r in range(int(table.rowCount())):
+        for c in range(int(table.columnCount())):
+            key = column_key_by_index.get(int(c), "")
+            if not key:
+                continue
+            it = table.item(int(r), int(c))
+            if it is None:
+                continue
+
+            flag = _to_alignment_flag((ui.column_align or {}).get(key, "left"))
+            try:
+                it.setTextAlignment(flag)
+            except Exception:
+                pass
+
+            if key in skip_font_keys:
+                continue
+
+            if key in (ui.column_bold or {}):
+                use_bold = bool(ui.column_bold.get(key))
+                it.setFont(body_font_bold if use_bold else body_font_normal)
+            else:
+                it.setFont(base_body)
 
 
 class ScheduleWorkView(QWidget):
@@ -267,6 +352,7 @@ class TitleBar2(QWidget):
     search_clicked = Signal()
     refresh_clicked = Signal()
     delete_clicked = Signal()
+    settings_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -281,16 +367,22 @@ class TitleBar2(QWidget):
 
         self.cbo_search_by = _mk_combo(self, height=32)
         self.cbo_search_by.setMinimumWidth(170)
+        self.cbo_search_by.addItem("Tự động", "auto")
         self.cbo_search_by.addItem("Mã NV", "employee_code")
         self.cbo_search_by.addItem("Tên nhân viên", "employee_name")
+        try:
+            self.cbo_search_by.setCurrentIndex(0)
+        except Exception:
+            pass
 
         self.inp_search = _mk_line_edit(self, height=32)
-        self.inp_search.setPlaceholderText("Nhập từ khóa...")
+        self.inp_search.setPlaceholderText("Nhập mã NV hoặc tên nhân viên...")
         self.inp_search.setMinimumWidth(260)
 
         self.btn_search = _mk_btn_primary("Tìm kiếm", None, height=32)
         self.btn_refresh = _mk_btn_outline("Làm mới", ICON_REFRESH, height=32)
         self.btn_delete = _mk_btn_outline("Xóa lịch NV", ICON_DELETE, height=32)
+        self.btn_settings = _mk_btn_outline("Cài đặt", None, height=32)
 
         self.total_icon = QLabel("")
         self.total_icon.setFixedSize(18, 18)
@@ -305,12 +397,14 @@ class TitleBar2(QWidget):
         )
         self.label_total.setStyleSheet(f"color: {COLOR_TEXT_PRIMARY};")
 
+        # Push the whole search block to the right (next to Total)
+        root.addStretch(1)
         root.addWidget(self.cbo_search_by)
-        root.addWidget(self.inp_search, 1)
+        root.addWidget(self.inp_search)
         root.addWidget(self.btn_search)
         root.addWidget(self.btn_refresh)
         root.addWidget(self.btn_delete)
-        root.addStretch(1)
+        root.addWidget(self.btn_settings)
         root.addWidget(self.total_icon)
         root.addWidget(self.label_total)
 
@@ -318,6 +412,7 @@ class TitleBar2(QWidget):
             self.btn_search.clicked.connect(self.search_clicked.emit)
             self.btn_refresh.clicked.connect(self.refresh_clicked.emit)
             self.btn_delete.clicked.connect(self.delete_clicked.emit)
+            self.btn_settings.clicked.connect(self.settings_clicked.emit)
         except Exception:
             pass
 
@@ -332,9 +427,10 @@ class MainLeft(QWidget):
         self.setFixedWidth(400)
         self.setMinimumHeight(548)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        # Border-right để ngăn cách với phần nội dung bên phải
+        # Add full border so the left-most edge is visible.
+        # Keep the right border to separate from the right content.
         self.setStyleSheet(
-            f"background-color: {MAIN_CONTENT_BG_COLOR}; border-right: 1px solid {COLOR_BORDER};"
+            f"background-color: {MAIN_CONTENT_BG_COLOR}; border: 1px solid {COLOR_BORDER};"
         )
 
         root = QVBoxLayout(self)
@@ -574,6 +670,12 @@ class MainRight(QWidget):
 
         # Bảng nhân viên
         self.table = QTableWidget(self)
+        # table.mb: QFrame vẽ viền ngoài, QTableWidget chỉ vẽ grid bên trong
+        try:
+            self.table.setFrameShape(QFrame.Shape.NoFrame)
+            self.table.setLineWidth(0)
+        except Exception:
+            pass
         self.table.setRowCount(0)
         self.table.setColumnCount(8)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -581,7 +683,18 @@ class MainRight(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setShowGrid(True)
+        try:
+            self.table.setVerticalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+            self.table.setHorizontalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+        except Exception:
+            pass
         self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         try:
             # Không hiển thị cột số thứ tự bên trái
             self.table.verticalHeader().setVisible(False)
@@ -612,16 +725,13 @@ class MainRight(QWidget):
 
         try:
             hh = self.table.horizontalHeader()
-            hh.setStretchLastSection(True)
+            hh.setStretchLastSection(False)
             hh.setFixedHeight(ROW_HEIGHT)
-            hh.setMinimumSectionSize(80)
-
-            # Auto fit table width (W)
-            hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-            hh.setSectionResizeMode(self.COL_CHECK, QHeaderView.ResizeMode.Fixed)
-            hh.setSectionResizeMode(self.COL_ID, QHeaderView.ResizeMode.Fixed)
+            hh.setMinimumSectionSize(60)
+            # We will manage column widths ourselves to always fit the viewport.
+            hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         except Exception:
-            pass
+            hh = None
 
         try:
             self.table.setColumnWidth(self.COL_CHECK, 40)
@@ -641,11 +751,41 @@ class MainRight(QWidget):
         except Exception:
             pass
 
+        # Auto-fit columns to viewport width
+        self._fixed_cols: set[int] = {self.COL_CHECK}
+        self._base_widths: dict[int, int] = {
+            self.COL_CHECK: 40,
+            self.COL_EMP_CODE: 130,
+            self.COL_MCC_CODE: 130,
+            self.COL_FULL_NAME: 240,
+            self.COL_DEPARTMENT: 170,
+            self.COL_TITLE: 160,
+            self.COL_SCHEDULE: 240,
+        }
+        # Use smaller mins so the table can always fit without horizontal scroll.
+        self._min_widths: dict[int, int] = {
+            self.COL_CHECK: 34,
+            self.COL_EMP_CODE: 70,
+            self.COL_MCC_CODE: 70,
+            self.COL_FULL_NAME: 110,
+            self.COL_DEPARTMENT: 90,
+            self.COL_TITLE: 90,
+            self.COL_SCHEDULE: 110,
+        }
+
         self.table.setStyleSheet(
             "\n".join(
                 [
-                    f"QTableWidget {{ background-color: {MAIN_CONTENT_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
-                    f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 0px; border-right: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                    f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
+                    f"QTableWidget::pane {{ border: 0px; }}",
+                    f"QTableWidget::viewport {{ background-color: transparent; }}",
+                    f"QAbstractScrollArea::corner {{ background-color: {BG_TITLE_2_HEIGHT}; border: 1px solid {GRID_LINES_COLOR}; }}",
+                    # Make header borders continuous (fix missing left edge in the screenshot).
+                    f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 1px solid {GRID_LINES_COLOR}; border-right: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                    # Style the top-left corner (above vertical header) so it doesn't look borderless.
+                    f"QTableCornerButton::section {{ background-color: {BG_TITLE_2_HEIGHT}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 1px solid {GRID_LINES_COLOR}; border-right: 1px solid {GRID_LINES_COLOR}; }}",
+                    f"QTableWidget::item {{ background-color: {ODD_ROW_BG_COLOR}; }}",
+                    f"QTableWidget::item:alternate {{ background-color: {EVEN_ROW_BG_COLOR}; }}",
                     f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; border-radius: 0px; }}",
                     f"QTableWidget::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; border-radius: 0px; }}",
                     "QTableWidget::item:focus { outline: none; }",
@@ -656,6 +796,26 @@ class MainRight(QWidget):
         self.table.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+
+        # QFrame bọc ngoài để viền không bao giờ mất
+        self.table_frame = QFrame(self)
+        try:
+            self.table_frame.setObjectName("mainRight_table_frame")
+        except Exception:
+            pass
+        try:
+            self.table_frame.setFrameShape(QFrame.Shape.Box)
+            self.table_frame.setFrameShadow(QFrame.Shadow.Plain)
+            self.table_frame.setLineWidth(1)
+        except Exception:
+            pass
+        self.table_frame.setStyleSheet(
+            f"QFrame#mainRight_table_frame {{ border: 1px solid {COLOR_BORDER}; background-color: {MAIN_CONTENT_BG_COLOR}; }}"
+        )
+        frame_root = QVBoxLayout(self.table_frame)
+        frame_root.setContentsMargins(0, 0, 0, 0)
+        frame_root.setSpacing(0)
+        frame_root.addWidget(self.table)
 
         try:
             self.table.cellClicked.connect(self._on_cell_clicked)
@@ -676,11 +836,48 @@ class MainRight(QWidget):
         root.addWidget(self.lbl_panel_title)
         root.addLayout(header)
         root.addWidget(self.sep_header_table)
-        root.addWidget(self.table, 1)
+        root.addWidget(self.table_frame, 1)
+
+        try:
+            self.table.viewport().installEventFilter(self)
+        except Exception:
+            pass
+
+        try:
+            self._fit_columns_to_viewport()
+        except Exception:
+            pass
 
         # Init label text based on current selection
         try:
             self._update_schedule_label()
+        except Exception:
+            pass
+
+        # Apply UI settings and live-update when changed.
+        self.apply_ui_settings()
+        try:
+            ui_settings_bus.changed.connect(self.apply_ui_settings)
+        except Exception:
+            pass
+
+    def apply_ui_settings(self) -> None:
+        try:
+            mapping = {
+                int(self.COL_CHECK): "check",
+                int(self.COL_EMP_CODE): "employee_code",
+                int(self.COL_MCC_CODE): "mcc_code",
+                int(self.COL_FULL_NAME): "full_name",
+                int(self.COL_DEPARTMENT): "department_name",
+                int(self.COL_TITLE): "title_name",
+                int(self.COL_SCHEDULE): "schedule_name",
+            }
+            _apply_schedule_work_table_ui(
+                self.table,
+                column_key_by_index=mapping,
+                # Keep ✅/❌ larger font as designed
+                skip_font_keys={"check"},
+            )
         except Exception:
             pass
 
@@ -707,6 +904,115 @@ class MainRight(QWidget):
             self.lbl_schedule.setText(f"Lịch làm việc: {name}")
         else:
             self.lbl_schedule.setText("Lịch làm việc")
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        try:
+            if obj is self.table.viewport() and event.type() == QEvent.Type.Resize:
+                self._fit_columns_to_viewport()
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+    def _fit_columns_to_viewport(self) -> None:
+        """Auto-resize visible columns to exactly fill the table viewport width."""
+
+        table = self.table
+        if table is None:
+            return
+
+        # Visible columns
+        visible_cols = [
+            c
+            for c in range(int(table.columnCount()))
+            if not bool(table.isColumnHidden(int(c)))
+        ]
+        if not visible_cols:
+            return
+
+        viewport_w = int(table.viewport().width())
+        if viewport_w <= 0:
+            return
+
+        # Reserve space for vertical scrollbar to avoid last column overflow.
+        try:
+            sbw = (
+                int(table.verticalScrollBar().sizeHint().width())
+                if table.verticalScrollBar().isVisible()
+                else 0
+            )
+        except Exception:
+            sbw = 0
+
+        fixed_cols = [c for c in visible_cols if int(c) in self._fixed_cols]
+        flex_cols = [c for c in visible_cols if int(c) not in self._fixed_cols]
+
+        fixed_sum = 0
+        for c in fixed_cols:
+            w = int(self._base_widths.get(int(c), int(table.columnWidth(int(c))) or 0))
+            w = max(int(self._min_widths.get(int(c), 0)), w)
+            table.setColumnWidth(int(c), int(w))
+            fixed_sum += int(w)
+
+        available = int(viewport_w - fixed_sum - sbw)
+        # Keep a small safety margin for gridlines/frame.
+        available = max(0, available - 2)
+        if not flex_cols:
+            return
+
+        bases = [
+            max(
+                1,
+                int(self._base_widths.get(int(c), int(table.columnWidth(int(c))) or 1)),
+            )
+            for c in flex_cols
+        ]
+        base_sum = int(sum(bases))
+        if base_sum <= 0:
+            base_sum = len(flex_cols)
+
+        widths: dict[int, int] = {}
+        for c, b in zip(flex_cols, bases):
+            min_w = int(self._min_widths.get(int(c), 0))
+            w = int((available * int(b)) / base_sum) if available > 0 else 0
+            w = max(min_w, w)
+            widths[int(c)] = int(w)
+
+        used = int(sum(widths.values()))
+
+        # If we exceeded available width (small window), shrink columns down to mins.
+        excess = int(used - available)
+        if excess > 0:
+            order = sorted(
+                [int(c) for c in flex_cols],
+                key=lambda col: int(widths.get(col, 0))
+                - int(self._min_widths.get(col, 0)),
+                reverse=True,
+            )
+            for col in order:
+                if excess <= 0:
+                    break
+                min_w = int(self._min_widths.get(col, 0))
+                cur = int(widths.get(col, 0))
+                reducible = int(cur - min_w)
+                if reducible <= 0:
+                    continue
+                take = min(excess, reducible)
+                widths[col] = int(cur - take)
+                excess -= int(take)
+
+        # If we have room left, give it to the last flex column.
+        used2 = int(sum(widths.values()))
+        remainder = int(available - used2)
+        if remainder != 0 and flex_cols:
+            last = int(flex_cols[-1])
+            widths[last] = max(
+                int(self._min_widths.get(last, 0)), int(widths.get(last, 0) + remainder)
+            )
+
+        for c in flex_cols:
+            table.setColumnWidth(
+                int(c), int(widths.get(int(c), int(table.columnWidth(int(c)))))
+            )
 
     def set_schedules(self, items: list[tuple[int, str]]) -> None:
         self.cbo_schedule.clear()
@@ -836,6 +1142,9 @@ class MainRight(QWidget):
             except Exception:
                 pass
 
+        # Re-apply align/bold/font after content is populated.
+        self.apply_ui_settings()
+
     def get_checked_employee_ids(self) -> list[int]:
         ids: list[int] = []
         for r in range(self.table.rowCount()):
@@ -885,11 +1194,12 @@ class TempScheduleContent(QWidget):
     delete_clicked = Signal()
 
     COL_ID = 0
-    COL_EMP_CODE = 1
-    COL_FULL_NAME = 2
-    COL_FROM_DATE = 3
-    COL_TO_DATE = 4
-    COL_SCHEDULE = 5
+    COL_CHECK = 1
+    COL_EMP_CODE = 2
+    COL_FULL_NAME = 3
+    COL_FROM_DATE = 4
+    COL_TO_DATE = 5
+    COL_SCHEDULE = 6
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -940,6 +1250,7 @@ class TempScheduleContent(QWidget):
         self.chk_update_by_selected = QPushButton("❌ Cập nhập theo nhân viên chọn")
         self.chk_update_by_selected.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_update_by_selected.setCheckable(True)
+        # Default: unchecked (user can toggle)
         self.chk_update_by_selected.setChecked(False)
         self.chk_update_by_selected.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.chk_update_by_selected.setFont(_mk_font_normal())
@@ -963,6 +1274,12 @@ class TempScheduleContent(QWidget):
         except Exception:
             pass
         _sync_update_by_selected_text()
+
+        # Allow user to toggle
+        try:
+            self.chk_update_by_selected.setEnabled(True)
+        except Exception:
+            pass
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 0, 0, 0)
@@ -989,14 +1306,31 @@ class TempScheduleContent(QWidget):
 
         # Right table
         self.table = QTableWidget(self)
+        # table.mb: QFrame vẽ viền ngoài, QTableWidget chỉ vẽ grid bên trong
+        try:
+            self.table.setFrameShape(QFrame.Shape.NoFrame)
+            self.table.setLineWidth(0)
+        except Exception:
+            pass
         self.table.setRowCount(0)
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setShowGrid(True)
+        try:
+            self.table.setVerticalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+            self.table.setHorizontalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+        except Exception:
+            pass
         self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -1004,6 +1338,7 @@ class TempScheduleContent(QWidget):
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
+                "",
                 "Mã NV",
                 "Tên Nhân viên",
                 "Từ ngày",
@@ -1018,13 +1353,16 @@ class TempScheduleContent(QWidget):
             hh.setFixedHeight(ROW_HEIGHT)
             hh.setMinimumSectionSize(80)
 
-            # Auto fit table width (W)
-            hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            # We will manage column widths ourselves to always fit the viewport.
+            hh.setStretchLastSection(False)
+            hh.setMinimumSectionSize(60)
+            hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         except Exception:
             pass
 
         try:
             self.table.setColumnWidth(self.COL_ID, 60)
+            self.table.setColumnWidth(self.COL_CHECK, 40)
             self.table.setColumnWidth(self.COL_EMP_CODE, 120)
             self.table.setColumnWidth(self.COL_FULL_NAME, 220)
             self.table.setColumnWidth(self.COL_FROM_DATE, 110)
@@ -1048,11 +1386,39 @@ class TempScheduleContent(QWidget):
         except Exception:
             pass
 
+        # Auto-fit columns to viewport width
+        self._fixed_cols: set[int] = set()
+        self._base_widths: dict[int, int] = {
+            self.COL_CHECK: 40,
+            self.COL_EMP_CODE: 120,
+            self.COL_FULL_NAME: 220,
+            self.COL_FROM_DATE: 110,
+            self.COL_TO_DATE: 110,
+            self.COL_SCHEDULE: 220,
+        }
+        # Use smaller mins so the table can always fit without horizontal scroll.
+        self._min_widths: dict[int, int] = {
+            self.COL_CHECK: 34,
+            self.COL_EMP_CODE: 70,
+            self.COL_FULL_NAME: 110,
+            self.COL_FROM_DATE: 80,
+            self.COL_TO_DATE: 80,
+            self.COL_SCHEDULE: 110,
+        }
+
         self.table.setStyleSheet(
             "\n".join(
                 [
-                    f"QTableWidget {{ background-color: {MAIN_CONTENT_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
-                    f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 0px; border-right: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                    f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
+                    f"QTableWidget::pane {{ border: 0px; }}",
+                    f"QTableWidget::viewport {{ background-color: transparent; }}",
+                    f"QAbstractScrollArea::corner {{ background-color: {BG_TITLE_2_HEIGHT}; border: 1px solid {GRID_LINES_COLOR}; }}",
+                    # Make header borders continuous (fix missing left edge in the screenshot).
+                    f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 1px solid {GRID_LINES_COLOR}; border-right: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                    # Style the top-left corner (above vertical header) so it doesn't look borderless.
+                    f"QTableCornerButton::section {{ background-color: {BG_TITLE_2_HEIGHT}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 1px solid {GRID_LINES_COLOR}; border-right: 1px solid {GRID_LINES_COLOR}; }}",
+                    f"QTableWidget::item {{ background-color: {ODD_ROW_BG_COLOR}; }}",
+                    f"QTableWidget::item:alternate {{ background-color: {EVEN_ROW_BG_COLOR}; }}",
                     f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; border-radius: 0px; }}",
                     f"QTableWidget::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; border-radius: 0px; }}",
                     "QTableWidget::item:focus { outline: none; }",
@@ -1060,6 +1426,26 @@ class TempScheduleContent(QWidget):
                 ]
             )
         )
+
+        # QFrame bọc ngoài để viền không bao giờ mất
+        self.table_frame = QFrame(self)
+        try:
+            self.table_frame.setObjectName("tempSchedule_table_frame")
+        except Exception:
+            pass
+        try:
+            self.table_frame.setFrameShape(QFrame.Shape.Box)
+            self.table_frame.setFrameShadow(QFrame.Shadow.Plain)
+            self.table_frame.setLineWidth(1)
+        except Exception:
+            pass
+        self.table_frame.setStyleSheet(
+            f"QFrame#tempSchedule_table_frame {{ border: 1px solid {COLOR_BORDER}; background-color: {MAIN_CONTENT_BG_COLOR}; }}"
+        )
+        frame_root = QVBoxLayout(self.table_frame)
+        frame_root.setContentsMargins(0, 0, 0, 0)
+        frame_root.setSpacing(0)
+        frame_root.addWidget(self.table)
 
         # Vertical separator: ngăn cách phần nhập liệu (trái) với bảng (phải)
         self.sep_left_table = QFrame(self)
@@ -1069,7 +1455,7 @@ class TempScheduleContent(QWidget):
 
         row.addWidget(self.left)
         row.addWidget(self.sep_left_table)
-        row.addWidget(self.table, 1)
+        row.addWidget(self.table_frame, 1)
 
         root.addWidget(self.lbl_title)
         root.addLayout(row)
@@ -1080,8 +1466,260 @@ class TempScheduleContent(QWidget):
         except Exception:
             pass
 
+        # Toggle check column (✅/❌)
+        try:
+            self.table.cellClicked.connect(self._on_cell_clicked)
+        except Exception:
+            pass
+
+        try:
+            self.table.viewport().installEventFilter(self)
+        except Exception:
+            pass
+
+        try:
+            self._fit_columns_to_viewport()
+        except Exception:
+            pass
+
+        # Apply UI settings and live-update when changed.
+        self.apply_ui_settings()
+        try:
+            ui_settings_bus.changed.connect(self.apply_ui_settings)
+        except Exception:
+            pass
+
+    def apply_ui_settings(self) -> None:
+        try:
+            mapping = {
+                int(self.COL_CHECK): "check",
+                int(self.COL_EMP_CODE): "employee_code",
+                int(self.COL_FULL_NAME): "full_name",
+                int(self.COL_FROM_DATE): "from_date",
+                int(self.COL_TO_DATE): "to_date",
+                int(self.COL_SCHEDULE): "schedule_name",
+            }
+            _apply_schedule_work_table_ui(
+                self.table,
+                column_key_by_index=mapping,
+                skip_font_keys={"check"},
+            )
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        try:
+            if obj is self.table.viewport() and event.type() == QEvent.Type.Resize:
+                self._fit_columns_to_viewport()
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+    def _fit_columns_to_viewport(self) -> None:
+        """Auto-resize visible columns to exactly fill the table viewport width."""
+
+        table = self.table
+        if table is None:
+            return
+
+        visible_cols = [
+            c
+            for c in range(int(table.columnCount()))
+            if not bool(table.isColumnHidden(int(c)))
+        ]
+        if not visible_cols:
+            return
+
+        viewport_w = int(table.viewport().width())
+        if viewport_w <= 0:
+            return
+
+        try:
+            sbw = (
+                int(table.verticalScrollBar().sizeHint().width())
+                if table.verticalScrollBar().isVisible()
+                else 0
+            )
+        except Exception:
+            sbw = 0
+
+        fixed_cols = [c for c in visible_cols if int(c) in self._fixed_cols]
+        flex_cols = [c for c in visible_cols if int(c) not in self._fixed_cols]
+
+        fixed_sum = 0
+        for c in fixed_cols:
+            w = int(self._base_widths.get(int(c), int(table.columnWidth(int(c))) or 0))
+            w = max(int(self._min_widths.get(int(c), 0)), w)
+            table.setColumnWidth(int(c), int(w))
+            fixed_sum += int(w)
+
+        available = int(viewport_w - fixed_sum - sbw)
+        available = max(0, available - 2)
+        if not flex_cols:
+            return
+
+        bases = [
+            max(
+                1,
+                int(self._base_widths.get(int(c), int(table.columnWidth(int(c))) or 1)),
+            )
+            for c in flex_cols
+        ]
+        base_sum = int(sum(bases))
+        if base_sum <= 0:
+            base_sum = len(flex_cols)
+
+        widths: dict[int, int] = {}
+        for c, b in zip(flex_cols, bases):
+            min_w = int(self._min_widths.get(int(c), 0))
+            w = int((available * int(b)) / base_sum) if available > 0 else 0
+            w = max(min_w, w)
+            widths[int(c)] = int(w)
+
+        used = int(sum(widths.values()))
+
+        excess = int(used - available)
+        if excess > 0:
+            order = sorted(
+                [int(c) for c in flex_cols],
+                key=lambda col: int(widths.get(col, 0))
+                - int(self._min_widths.get(col, 0)),
+                reverse=True,
+            )
+            for col in order:
+                if excess <= 0:
+                    break
+                min_w = int(self._min_widths.get(col, 0))
+                cur = int(widths.get(col, 0))
+                reducible = int(cur - min_w)
+                if reducible <= 0:
+                    continue
+                take = min(excess, reducible)
+                widths[col] = int(cur - take)
+                excess -= int(take)
+
+        used2 = int(sum(widths.values()))
+        remainder = int(available - used2)
+        if remainder != 0 and flex_cols:
+            last = int(flex_cols[-1])
+            widths[last] = max(
+                int(self._min_widths.get(last, 0)), int(widths.get(last, 0) + remainder)
+            )
+
+        for c in flex_cols:
+            table.setColumnWidth(
+                int(c), int(widths.get(int(c), int(table.columnWidth(int(c)))))
+            )
+
     def clear_rows(self) -> None:
         self.table.setRowCount(0)
+
+    def set_rows(self, rows: list[dict]) -> None:
+        """Render temp schedule assignments into the right table."""
+
+        self.table.setRowCount(0)
+        if not rows:
+            return
+
+        self.table.setRowCount(len(rows))
+        for r, item in enumerate(list(rows)):
+            assignment_id = item.get("id")
+            emp_code = item.get("employee_code")
+            full_name = item.get("full_name")
+            from_date = item.get("effective_from")
+            to_date = item.get("effective_to")
+            schedule_name = item.get("schedule_name")
+
+            it_id = QTableWidgetItem(
+                str(assignment_id if assignment_id is not None else "")
+            )
+            it_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_ID, it_id)
+
+            chk = QTableWidgetItem("❌")
+            chk.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            try:
+                f = QFont(UI_FONT, int(CONTENT_FONT) + 4)
+                chk.setFont(f)
+            except Exception:
+                pass
+            chk.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_CHECK, chk)
+
+            it_code = QTableWidgetItem(str(emp_code or ""))
+            it_code.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_EMP_CODE, it_code)
+
+            it_name = QTableWidgetItem(str(full_name or ""))
+            it_name.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_FULL_NAME, it_name)
+
+            it_from = QTableWidgetItem(str(from_date or ""))
+            it_from.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_FROM_DATE, it_from)
+
+            it_to = QTableWidgetItem(str(to_date or ""))
+            it_to.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_TO_DATE, it_to)
+
+            it_sched = QTableWidgetItem(str(schedule_name or ""))
+            it_sched.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_SCHEDULE, it_sched)
+
+            try:
+                self.table.setRowHeight(r, ROW_HEIGHT)
+            except Exception:
+                pass
+
+        # Re-apply align/bold/font after content is populated.
+        self.apply_ui_settings()
+
+    def get_selected_assignment_id(self) -> int | None:
+        try:
+            row = int(self.table.currentRow())
+        except Exception:
+            return None
+        if row < 0:
+            return None
+        it = self.table.item(row, self.COL_ID)
+        if it is None:
+            return None
+        raw = str(it.text() or "").strip()
+        if not raw:
+            return None
+        try:
+            v = int(raw)
+        except Exception:
+            return None
+        return v if v > 0 else None
+
+    def get_checked_assignment_ids(self) -> list[int]:
+        ids: list[int] = []
+        for r in range(self.table.rowCount()):
+            chk = self.table.item(r, self.COL_CHECK)
+            if chk is None or chk.text() != "✅":
+                continue
+            it_id = self.table.item(r, self.COL_ID)
+            if it_id is None:
+                continue
+            raw = str(it_id.text() or "").strip()
+            if not raw:
+                continue
+            try:
+                v = int(raw)
+            except Exception:
+                continue
+            if v > 0:
+                ids.append(v)
+        return ids
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        if col != self.COL_CHECK:
+            return
+        it = self.table.item(row, col)
+        if it is None:
+            return
+        it.setText("✅" if it.text() != "✅" else "❌")
 
     def set_schedules(self, items: list[tuple[int, str]]) -> None:
         self.cbo_schedule.clear()

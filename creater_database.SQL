@@ -42,7 +42,6 @@
     DROP TABLE IF EXISTS hr_attendance.job_titles;
 
     DROP TABLE IF EXISTS hr_attendance.attendance_symbols;
-    DROP TABLE IF EXISTS hr_attendance.absence_symbols;
 
     DROP TABLE IF EXISTS hr_attendance.company;
      
@@ -516,7 +515,7 @@
     -- Ký hiệu Chấm công
     -- Quy ước:
     -- - Lưu theo dạng nhiều dòng (giống absence_symbols)
-    -- - code cố định C01..C09
+    -- - code cố định C01..C10
     -- - description: mô tả
     -- - symbol: ký hiệu
     -- - is_visible: checkbox "Hiện"
@@ -536,69 +535,22 @@
         UNIQUE KEY uq_attendance_symbols_code (code)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    /* Seed: C01..C09 (nếu chưa có) */
+    /* Seed: C01..C10 (nếu chưa có) */
     INSERT INTO hr_attendance.attendance_symbols (code, description, symbol, is_visible)
     SELECT v.code, v.description, v.symbol, v.is_visible
     FROM (
-        SELECT 'C01' AS code, 'Ký hiệu đi trễ' AS description, '' AS symbol, 1 AS is_visible
-        UNION ALL SELECT 'C02', 'Ký hiệu về sớm', '', 1
-        UNION ALL SELECT 'C03', 'Ký hiệu đúng giờ', '', 1
-        UNION ALL SELECT 'C04', 'Ký hiệu tăng ca', '', 1
-        UNION ALL SELECT 'C05', 'Ký hiệu thiếu giờ ra', '', 1
-        UNION ALL SELECT 'C06', 'Ký hiệu thiếu giờ vào', '', 1
-        UNION ALL SELECT 'C07', 'Ký hiệu vắng (mặc định không chấm công)', '', 1
-        UNION ALL SELECT 'C08', 'Ký hiệu đúng giờ ca có qua đêm', '', 1
-        UNION ALL SELECT 'C09', 'Ký hiệu ngày không xếp ca', '', 1
+        SELECT 'C01' AS code, 'Ký hiệu đi trễ' AS description, 'Tr' AS symbol, 1 AS is_visible
+        UNION ALL SELECT 'C02', 'Ký hiệu về sớm', 'Sm', 1
+        UNION ALL SELECT 'C03', 'Ký hiệu đúng giờ', 'X', 1
+        UNION ALL SELECT 'C04', 'Ký hiệu tăng ca', '+', 1
+        UNION ALL SELECT 'C05', 'Ký hiệu thiếu giờ ra', 'KR', 1
+        UNION ALL SELECT 'C06', 'Ký hiệu thiếu giờ vào', 'KV', 1
+        UNION ALL SELECT 'C07', 'Ký hiệu vắng (mặc định không chấm công)', 'V', 1
+        UNION ALL SELECT 'C08', 'Ký hiệu đúng giờ ca có qua đêm', 'Đ', 1
+        UNION ALL SELECT 'C09', 'Ký hiệu ngày không xếp ca', 'OFF', 1
+        UNION ALL SELECT 'C10', 'Ký hiệu nghỉ lễ', 'Le', 1
     ) AS v
     LEFT JOIN hr_attendance.attendance_symbols a ON a.code = v.code
-    WHERE a.code IS NULL;
-
-
-    -- Ký hiệu Vắng
-    -- Quy ước:
-    -- - Hiển thị cố định A01..A15
-    -- - description: mô tả
-    -- - symbol: ký hiệu
-    -- - is_used: sử dụng
-    -- - is_paid: tính công
-    -- Lưu ý: các dòng DROP TABLE bên dưới chỉ nên dùng khi cài mới
-    -- hoặc khi gặp lỗi #1932 (table doesn't exist in engine). Nếu DB đang có dữ liệu,
-    -- hãy xóa/disable các dòng DROP TABLE.
-    DROP TABLE IF EXISTS hr_attendance.absence_symbols;
-
-    CREATE TABLE IF NOT EXISTS hr_attendance.absence_symbols (
-        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        code VARCHAR(3) NOT NULL,
-        description VARCHAR(255) NULL,
-        symbol VARCHAR(50) NULL,
-        is_used TINYINT(1) NOT NULL DEFAULT 0,
-        is_paid TINYINT(1) NOT NULL DEFAULT 0,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_absence_symbols_code (code)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-    /* Seed: A01..A15 (nếu chưa có) */
-    INSERT INTO hr_attendance.absence_symbols (code, description, symbol, is_used, is_paid)
-    SELECT v.code, v.description, v.symbol, v.is_used, v.is_paid
-    FROM (
-        SELECT 'A01' AS code, '' AS description, '' AS symbol, 0 AS is_used, 0 AS is_paid
-        UNION ALL SELECT 'A02', '', '', 0, 0
-        UNION ALL SELECT 'A03', '', '', 0, 0
-        UNION ALL SELECT 'A04', '', '', 0, 0
-        UNION ALL SELECT 'A05', '', '', 0, 0
-        UNION ALL SELECT 'A06', '', '', 0, 0
-        UNION ALL SELECT 'A07', '', '', 0, 0
-        UNION ALL SELECT 'A08', '', '', 0, 0
-        UNION ALL SELECT 'A09', '', '', 0, 0
-        UNION ALL SELECT 'A10', '', '', 0, 0
-        UNION ALL SELECT 'A11', '', '', 0, 0
-        UNION ALL SELECT 'A12', '', '', 0, 0
-        UNION ALL SELECT 'A13', '', '', 0, 0
-        UNION ALL SELECT 'A14', '', '', 0, 0
-        UNION ALL SELECT 'A15', '', '', 0, 0
-    ) v
-    LEFT JOIN hr_attendance.absence_symbols a ON a.code = v.code
     WHERE a.code IS NULL;
 
 

@@ -82,6 +82,24 @@ class DownloadAttendanceSettingsDialog(QDialog):
         self.spin_table_font_size.setValue(int(self._ui.table_font_size))
         self.spin_table_font_size.setFont(font_normal)
 
+        self.spin_table_header_font_size = QSpinBox(group)
+        self.spin_table_header_font_size.setRange(8, 24)
+        self.spin_table_header_font_size.setValue(int(self._ui.table_header_font_size))
+        self.spin_table_header_font_size.setFont(font_normal)
+
+        self.cbo_table_header_weight = QComboBox(group)
+        self.cbo_table_header_weight.setFont(font_normal)
+        self.cbo_table_header_weight.addItem("Nhạt", "normal")
+        self.cbo_table_header_weight.addItem("Đậm", "bold")
+        self.cbo_table_header_weight.setCurrentIndex(
+            max(
+                0,
+                self.cbo_table_header_weight.findData(
+                    str(self._ui.table_header_font_weight)
+                ),
+            )
+        )
+
         self.spin_combo_font_size = QSpinBox(group)
         self.spin_combo_font_size.setRange(8, 24)
         self.spin_combo_font_size.setValue(int(self._ui.combo_font_size))
@@ -193,6 +211,8 @@ class DownloadAttendanceSettingsDialog(QDialog):
         _refresh_column_defaults()
 
         form.addRow("Kích thước chữ (bảng)", self.spin_table_font_size)
+        form.addRow("Kích thước chữ (header)", self.spin_table_header_font_size)
+        form.addRow("Chữ đậm/nhạt (header)", self.cbo_table_header_weight)
         form.addRow("Kích thước chữ (combobox/input)", self.spin_combo_font_size)
         form.addRow("Kích thước chữ (lịch)", self.spin_calendar_font_size)
         form.addRow("Chiều cao input", self.spin_input_height)
@@ -241,6 +261,10 @@ class DownloadAttendanceSettingsDialog(QDialog):
     def _on_apply(self) -> None:
         try:
             table_fs = int(self.spin_table_font_size.value())
+            table_hfs = int(self.spin_table_header_font_size.value())
+            table_hfw = str(
+                self.cbo_table_header_weight.currentData() or "bold"
+            ).strip()
             combo_fs = int(self.spin_combo_font_size.value())
             cal_fs = int(self.spin_calendar_font_size.value())
 
@@ -262,6 +286,8 @@ class DownloadAttendanceSettingsDialog(QDialog):
 
             update_download_attendance_ui(
                 table_font_size=table_fs,
+                table_header_font_size=table_hfs,
+                table_header_font_weight=table_hfw,
                 combo_font_size=combo_fs,
                 calendar_font_size=cal_fs,
                 input_height=input_h,

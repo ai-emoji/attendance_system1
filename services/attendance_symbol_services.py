@@ -31,7 +31,7 @@ class AttendanceSymbolRow:
 class AttendanceSymbolService:
     SYMBOL_MAX_LENGTH = 50
     DESCRIPTION_MAX_LENGTH = 255
-    _CODE_RE = re.compile(r"^C(0[1-9])$")
+    _CODE_RE = re.compile(r"^C(0[1-9]|10)$")
 
     def __init__(self, repository: AttendanceSymbolRepository | None = None) -> None:
         self._repo = repository or AttendanceSymbolRepository()

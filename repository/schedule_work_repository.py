@@ -262,3 +262,165 @@ class ScheduleWorkRepository:
         finally:
             if cursor is not None:
                 cursor.close()
+
+    def list_employee_schedule_assignments(
+        self, employee_id: int
+    ) -> list[dict[str, Any]]:
+        """List all schedule assignments for a single employee (used by TempScheduleContent)."""
+
+        query = (
+            "SELECT esa.id, e.employee_code, e.full_name, "
+            "esa.employee_id, esa.schedule_id, esa.effective_from, esa.effective_to, "
+            "COALESCE(s.schedule_name, '') AS schedule_name "
+            "FROM hr_attendance.employee_schedule_assignments esa "
+            "JOIN hr_attendance.employees e ON e.id = esa.employee_id "
+            "JOIN hr_attendance.arrange_schedules s ON s.id = esa.schedule_id "
+            "WHERE esa.employee_id = %s "
+            "ORDER BY esa.effective_from DESC, esa.id DESC"
+        )
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=True)
+                cursor.execute(query, (int(employee_id),))
+                return list(cursor.fetchall() or [])
+        except Exception:
+            logger.exception("Lỗi list_employee_schedule_assignments")
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()
+
+    def list_temp_schedule_assignments(
+        self, employee_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
+        """List temporary schedule assignments.
+
+        Convention: temp rows are assignments that have an end date (effective_to IS NOT NULL).
+        """
+
+        where: list[str] = ["esa.effective_to IS NOT NULL"]
+        params: list[Any] = []
+
+        ids: list[int] = []
+        for x in employee_ids or []:
+            try:
+                v = int(x)
+            except Exception:
+                continue
+            if v > 0:
+                ids.append(v)
+        ids = list(dict.fromkeys(ids))
+
+        if ids:
+            placeholders = ",".join(["%s"] * len(ids))
+            where.append(f"esa.employee_id IN ({placeholders})")
+            params.extend(ids)
+
+        where_sql = " WHERE " + " AND ".join(where) if where else ""
+        query = (
+            "SELECT esa.id, e.employee_code, e.full_name, "
+            "esa.employee_id, esa.schedule_id, esa.effective_from, esa.effective_to, "
+            "COALESCE(s.schedule_name, '') AS schedule_name "
+            "FROM hr_attendance.employee_schedule_assignments esa "
+            "JOIN hr_attendance.employees e ON e.id = esa.employee_id "
+            "JOIN hr_attendance.arrange_schedules s ON s.id = esa.schedule_id "
+            + where_sql
+            + " ORDER BY esa.effective_from DESC, esa.id DESC"
+        )
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=True)
+                cursor.execute(query, tuple(params))
+                return list(cursor.fetchall() or [])
+        except Exception:
+            logger.exception("Lỗi list_temp_schedule_assignments")
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()
+
+    def get_employee_active_schedule_assignment(
+        self,
+        *,
+        employee_id: int,
+        on_date: str,
+    ) -> dict[str, Any] | None:
+        """Get the active assignment at a given date (if any)."""
+
+        query = (
+            "SELECT esa.id, esa.employee_id, esa.schedule_id, esa.effective_from, esa.effective_to, "
+            "COALESCE(s.schedule_name, '') AS schedule_name "
+            "FROM hr_attendance.employee_schedule_assignments esa "
+            "JOIN hr_attendance.arrange_schedules s ON s.id = esa.schedule_id "
+            "WHERE esa.employee_id = %s "
+            "  AND esa.effective_from <= %s "
+            "  AND (esa.effective_to IS NULL OR esa.effective_to >= %s) "
+            "ORDER BY esa.effective_from DESC, esa.id DESC "
+            "LIMIT 1"
+        )
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=True)
+                cursor.execute(query, (int(employee_id), str(on_date), str(on_date)))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception:
+            logger.exception("Lỗi get_employee_active_schedule_assignment")
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()
+
+    def get_assignment_id_by_employee_from(
+        self,
+        *,
+        employee_id: int,
+        effective_from: str,
+    ) -> int | None:
+        query = (
+            "SELECT id FROM hr_attendance.employee_schedule_assignments "
+            "WHERE employee_id = %s AND effective_from = %s "
+            "LIMIT 1"
+        )
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=True)
+                cursor.execute(query, (int(employee_id), str(effective_from)))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                try:
+                    return int(row.get("id"))
+                except Exception:
+                    return None
+        except Exception:
+            logger.exception("Lỗi get_assignment_id_by_employee_from")
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()
+
+    def delete_assignment_by_id(self, assignment_id: int) -> int:
+        query = "DELETE FROM hr_attendance.employee_schedule_assignments WHERE id = %s"
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=False)
+                cursor.execute(query, (int(assignment_id),))
+                conn.commit()
+                return int(cursor.rowcount)
+        except Exception:
+            logger.exception("Lỗi delete_assignment_by_id")
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()

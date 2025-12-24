@@ -1,16 +1,7 @@
-"""ui.dialog.attendance_symbol_dialog
-
-Dialog cấu hình "Ký hiệu Chấm công".
-
-Yêu cầu UI:
-- Hiển thị dạng bảng/cột giống dialog "Ký hiệu Vắng"
-- Hiển thị giữa màn hình
-- Không dùng QMessageBox
-"""
+"""ui.dialog.attendance_symbol_dialog Dialog cấu hình "Ký hiệu Chấm công". Yêu cầu UI: - Hiển thị dạng bảng/cột giống dialog "Ký hiệu Vắng" - Hiển thị giữa màn hình - Không dùng QMessageBox"""
 
 from __future__ import annotations
-
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -75,11 +66,9 @@ class AttendanceSymbolDialog(QDialog):
         font_normal = QFont(UI_FONT, CONTENT_FONT)
         if FONT_WEIGHT_NORMAL >= 400:
             font_normal.setWeight(QFont.Weight.Normal)
-
         font_button = QFont(UI_FONT, CONTENT_FONT)
         if FONT_WEIGHT_SEMIBOLD >= 500:
             font_button.setWeight(QFont.Weight.DemiBold)
-
         font_header = QFont(UI_FONT, CONTENT_FONT)
         if FONT_WEIGHT_SEMIBOLD >= 500:
             font_header.setWeight(QFont.Weight.DemiBold)
@@ -103,13 +92,15 @@ class AttendanceSymbolDialog(QDialog):
         header.setSectionsMovable(False)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setFont(font_header)
-
         self.table.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
+
         self.table.setStyleSheet(
             "\n".join(
                 [
                     f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; border: 1px solid {COLOR_BORDER}; }}",
                     f"QHeaderView::section {{ background-color: {INPUT_COLOR_BG}; border: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                    f"QHeaderView::section:first {{ border-left: 1px solid {GRID_LINES_COLOR}; }}",
+                    f"QTableCornerButton::section {{ background-color: {INPUT_COLOR_BG}; border: 1px solid {GRID_LINES_COLOR}; }}",
                     f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; }}",
                     "QTableWidget::item:focus { outline: none; }",
                     "QTableWidget:focus { outline: none; }",
@@ -118,6 +109,7 @@ class AttendanceSymbolDialog(QDialog):
         )
 
         self.table.cellEntered.connect(self._on_cell_entered)
+        self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.viewport().installEventFilter(self)
 
         header.setSectionResizeMode(0, header.ResizeMode.Fixed)
@@ -125,12 +117,11 @@ class AttendanceSymbolDialog(QDialog):
         header.setSectionResizeMode(2, header.ResizeMode.Stretch)
         header.setSectionResizeMode(3, header.ResizeMode.Fixed)
         header.setSectionResizeMode(4, header.ResizeMode.Fixed)
-
         self.table.setColumnWidth(1, 70)  # Mã
         self.table.setColumnWidth(3, 140)  # Ký hiệu
         self.table.setColumnWidth(4, 120)  # Hiện
 
-        # Các dòng cố định C01..C09
+        # Các dòng cố định C01..C10
         row_defs: list[tuple[str, str]] = [
             ("C01", "Ký hiệu đi trễ"),
             ("C02", "Ký hiệu về sớm"),
@@ -141,8 +132,8 @@ class AttendanceSymbolDialog(QDialog):
             ("C07", "Ký hiệu vắng (mặc định không chấm công)"),
             ("C08", "Ký hiệu đúng giờ ca có qua đêm"),
             ("C09", "Ký hiệu ngày không xếp ca"),
+            ("C10", "Ký hiệu nghỉ lễ"),
         ]
-
         self.table.setRowCount(len(row_defs))
         for i, (code, desc) in enumerate(row_defs):
             self._init_row(i, code=code, description=desc, font=font_normal)
@@ -194,6 +185,7 @@ class AttendanceSymbolDialog(QDialog):
         self.btn_cancel.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
+
         btn_layout.addWidget(self.btn_save, 1)
         btn_layout.addWidget(self.btn_cancel, 1)
 
@@ -204,7 +196,9 @@ class AttendanceSymbolDialog(QDialog):
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_save.clicked.connect(self._on_save)
 
-    def _mk_line_edit(self, font: QFont, placeholder: str = "") -> QLineEdit:
+    def _mk_line_edit(
+        self, font: QFont, placeholder: str = "", row: int = -1
+    ) -> QLineEdit:
         inp = QLineEdit()
         inp.setFont(font)
         inp.setFixedHeight(INPUT_HEIGHT_DEFAULT)
@@ -218,6 +212,15 @@ class AttendanceSymbolDialog(QDialog):
                 ]
             )
         )
+        # Thêm event filter để xử lý click
+        if row >= 0:
+            original_mouse_press = inp.mousePressEvent
+
+            def _mouse_press_event(e, r=row, w=inp, original=original_mouse_press):
+                self._on_lineedit_clicked(r, e, w)
+                original(e)
+
+            inp.mousePressEvent = _mouse_press_event
         return inp
 
     @staticmethod
@@ -268,9 +271,19 @@ class AttendanceSymbolDialog(QDialog):
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, col, item)
 
-        desc_inp = self._mk_line_edit(font, "Mô tả")
+        desc_inp = self._mk_line_edit(font, "Mô tả", row=row)
         desc_inp.setText(description)
-        sym_inp = self._mk_line_edit(font, "(ví dụ: T)")
+        # Cột 2 (Mô tả) không cho phép sửa
+        desc_inp.setReadOnly(True)
+        desc_inp.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        desc_inp.setCursor(Qt.CursorShape.ArrowCursor)
+
+        sym_inp = self._mk_line_edit(font, "(ví dụ: T)", row=row)
+        # Khóa ký hiệu mặc định, chỉ mở khi user click vào row
+        sym_inp.setReadOnly(True)
+        sym_inp.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        sym_inp.setCursor(Qt.CursorShape.ArrowCursor)
+
         chk = QCheckBox("")
         chk.setCursor(Qt.CursorShape.PointingHandCursor)
         chk.setChecked(True)
@@ -289,7 +302,6 @@ class AttendanceSymbolDialog(QDialog):
     def _clear_row_hover(self) -> None:
         if self._hover_row is None:
             return
-
         row = self._hover_row
         self._hover_row = None
         for col in range(self.table.columnCount()):
@@ -300,19 +312,56 @@ class AttendanceSymbolDialog(QDialog):
     def _on_cell_entered(self, row: int, _col: int) -> None:
         if self._hover_row == row:
             return
-
         self._clear_row_hover()
         self._hover_row = row
-
         brush = QBrush(QColor(HOVER_ROW_BG_COLOR))
         for col in range(self.table.columnCount()):
             item = self.table.item(row, col)
             if item is not None:
                 item.setBackground(brush)
 
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        """Khi click vào row, cho phép chỉnh sửa cột Ký hiệu"""
+        sym_inp = self.table.cellWidget(row, 3)
+        if isinstance(sym_inp, QLineEdit):
+            sym_inp.setReadOnly(False)
+            sym_inp.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            sym_inp.setCursor(Qt.CursorShape.IBeamCursor)
+            # Nếu click vào cột ký hiệu, tự động focus và select text
+            if col == 3:
+                sym_inp.setFocus()
+                sym_inp.selectAll()
+
+    def _on_lineedit_clicked(self, row: int, event, clicked_widget: QWidget) -> None:
+        """Xử lý khi click vào QLineEdit trong bảng"""
+        # Mở khóa cột ký hiệu cho row này
+        sym_inp = self.table.cellWidget(row, 3)
+        if isinstance(sym_inp, QLineEdit):
+            sym_inp.setReadOnly(False)
+            sym_inp.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            sym_inp.setCursor(Qt.CursorShape.IBeamCursor)
+            # Nếu click vào chính cột ký hiệu, focus và select
+            if clicked_widget is sym_inp:
+                QTimer.singleShot(0, sym_inp.setFocus)
+                QTimer.singleShot(10, sym_inp.selectAll)
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._center_dialog()
+        # Tránh tự focus vào QLineEdit trong bảng ngay khi mở dialog
+        QTimer.singleShot(0, self._ensure_no_input_autofocus)
+
+    def _ensure_no_input_autofocus(self) -> None:
+        # Clear focus/selection from any input
+        for row in range(self.table.rowCount()):
+            for col in (2, 3):
+                w = self.table.cellWidget(row, col)
+                if isinstance(w, QLineEdit):
+                    w.deselect()
+                    w.clearFocus()
+        # Focus a non-input widget (button) instead
+        if hasattr(self, "btn_save") and self.btn_save is not None:
+            self.btn_save.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _center_dialog(self) -> None:
         # Center on parent if possible; otherwise center on screen
@@ -324,7 +373,6 @@ class AttendanceSymbolDialog(QDialog):
             fg.moveCenter(center)
             self.move(fg.topLeft())
             return
-
         screen = self.screen()
         if screen is None:
             return
@@ -360,7 +408,6 @@ class AttendanceSymbolDialog(QDialog):
                 desc.setText(str(data.get("description") or desc.text() or ""))
             if isinstance(sym, QLineEdit):
                 sym.setText(str(data.get("symbol") or ""))
-
             vis_chk = vis_wrap.findChild(QCheckBox) if vis_wrap is not None else None
             if vis_chk is not None:
                 vis_chk.setChecked(bool(int(data.get("is_visible") or 0)))

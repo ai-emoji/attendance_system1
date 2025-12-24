@@ -102,7 +102,6 @@ class HeaderController:
                 HeaderAction("khai báo lịch\nLàm việc", "arrange_schedule.svg"),
                 HeaderAction("Sắp xếp lịch\nLàm việc", "schedule_work.svg"),
                 HeaderAction("Ký hiệu\nChấm công", "attendance_symbol.svg"),
-                HeaderAction("Ký hiệu\nVắng", "absence_symbol.svg"),
                 HeaderAction("Chấm công\nTheo ca", "shift_attendance.svg"),
             ]
 

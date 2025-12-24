@@ -35,7 +35,6 @@ from ui.controllers.device_controllers import DeviceController
 from ui.controllers.department_controllers import DepartmentController
 from ui.controllers.employee_controllers import EmployeeController
 from ui.controllers.holiday_controllers import HolidayController
-from ui.controllers.absence_symbol_controllers import AbsenceSymbolController
 from ui.controllers.csdl_controllers import CSDLController
 from ui.controllers.backup_controllers import BackupController
 from ui.controllers.absence_restore_controllers import AbsenceRestoreController
@@ -306,7 +305,6 @@ class MainWindow(QMainWindow):
         """Khởi tạo cửa sổ chính."""
         super().__init__()
         self._company_controller: CompanyController | None = None
-        self._absence_symbol_controller: AbsenceSymbolController | None = None
         self._csdl_controller: CSDLController | None = None
         self._backup_controller: BackupController | None = None
         self._absence_restore_controller: AbsenceRestoreController | None = None
@@ -343,7 +341,6 @@ class MainWindow(QMainWindow):
 
         # Controller cho dialog công ty
         self._company_controller = CompanyController(self)
-        self._absence_symbol_controller = AbsenceSymbolController(self)
         self._csdl_controller = CSDLController(self)
         self._backup_controller = BackupController(self)
         self._absence_restore_controller = AbsenceRestoreController(self)
@@ -387,13 +384,6 @@ class MainWindow(QMainWindow):
         if action_text == "Ký hiệu\nChấm công":
             dlg = AttendanceSymbolDialog(self)
             dlg.exec()
-            return
-
-        if (
-            action_text == "Ký hiệu\nVắng"
-            and self._absence_symbol_controller is not None
-        ):
-            self._absence_symbol_controller.show_dialog()
             return
 
         # HeaderController currently has a space before newline in this label.

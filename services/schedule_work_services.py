@@ -196,3 +196,79 @@ class ScheduleWorkService:
         except Exception:
             logger.exception("delete_employee_schedule thất bại")
             return False, "Không thể xóa lịch. Vui lòng thử lại.", 0
+
+    def list_employee_schedule_assignments(self, employee_id: int) -> list[dict]:
+        if not employee_id:
+            return []
+        rows = self._repo.list_employee_schedule_assignments(int(employee_id))
+        return list(rows or [])
+
+    def list_temp_schedule_assignments(
+        self, employee_ids: list[int] | None = None
+    ) -> list[dict]:
+        rows = self._repo.list_temp_schedule_assignments(employee_ids=employee_ids)
+        return list(rows or [])
+
+    def get_employee_active_schedule_assignment(
+        self, *, employee_id: int, on_date: str | None = None
+    ) -> dict | None:
+        if not employee_id:
+            return None
+        d = str(on_date or date.today().isoformat())
+        return self._repo.get_employee_active_schedule_assignment(
+            employee_id=int(employee_id),
+            on_date=d,
+        )
+
+    def upsert_employee_schedule_assignment_with_range(
+        self,
+        *,
+        employee_id: int,
+        schedule_id: int,
+        effective_from: str,
+        effective_to: str | None,
+        note: str | None = None,
+    ) -> tuple[bool, str, int | None]:
+        """Create/update a schedule assignment with from/to range.
+
+        Returns (ok, message, assignment_id)
+        """
+
+        if not employee_id:
+            return False, "Vui lòng chọn nhân viên.", None
+        if not schedule_id or int(schedule_id) <= 0:
+            return False, "Vui lòng chọn Lịch làm việc.", None
+        if not str(effective_from or "").strip():
+            return False, "Vui lòng chọn Từ ngày.", None
+
+        try:
+            self._repo.upsert_employee_schedule_assignment(
+                employee_id=int(employee_id),
+                schedule_id=int(schedule_id),
+                effective_from=str(effective_from),
+                effective_to=(str(effective_to) if effective_to else None),
+                note=note,
+            )
+
+            assignment_id = self._repo.get_assignment_id_by_employee_from(
+                employee_id=int(employee_id),
+                effective_from=str(effective_from),
+            )
+            return True, "Đã lưu lịch trình tạm.", assignment_id
+        except Exception:
+            logger.exception("Không thể lưu lịch trình tạm")
+            return (
+                False,
+                "Không thể lưu lịch trình tạm. Vui lòng kiểm tra cấu hình DB và thử lại.",
+                None,
+            )
+
+    def delete_assignment_by_id(self, assignment_id: int) -> tuple[bool, str, int]:
+        if not assignment_id:
+            return False, "Vui lòng chọn dòng cần xóa.", 0
+        try:
+            affected = self._repo.delete_assignment_by_id(int(assignment_id))
+            return True, "Đã xóa lịch trình tạm.", int(affected)
+        except Exception:
+            logger.exception("Không thể xóa lịch trình tạm")
+            return False, "Không thể xóa lịch trình tạm. Vui lòng thử lại.", 0

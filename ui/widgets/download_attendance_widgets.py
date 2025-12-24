@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QCalendarWidget,
     QComboBox,
     QDateEdit,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -607,6 +608,12 @@ class MainContent(QWidget):
         layout.setSpacing(0)
 
         self.table = QTableWidget(self)
+        # table.mb: QFrame vẽ viền ngoài, QTableWidget chỉ vẽ grid bên trong
+        try:
+            self.table.setFrameShape(QFrame.Shape.NoFrame)
+            self.table.setLineWidth(0)
+        except Exception:
+            pass
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.table.setColumnCount(len(ATTENDANCE_HEADERS))
         self.table.setHorizontalHeaderLabels(list(ATTENDANCE_HEADERS))
@@ -615,6 +622,15 @@ class MainContent(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setShowGrid(True)
+        try:
+            self.table.setVerticalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+            self.table.setHorizontalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+        except Exception:
+            pass
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -651,8 +667,11 @@ class MainContent(QWidget):
         self.table.setStyleSheet(
             "\n".join(
                 [
-                    f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
+                    f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
+                    "QTableWidget::pane { border: 0px; }",
                     f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                    f"QHeaderView::section:first {{ border-left: 1px solid {GRID_LINES_COLOR}; }}",
+                    f"QTableCornerButton::section {{ background-color: {BG_TITLE_2_HEIGHT}; border: 1px solid {GRID_LINES_COLOR}; }}",
                     f"QTableWidget::item {{ padding-left: 8px; padding-right: 8px; }}",
                     f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; }}",
                     f"QTableWidget::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border-radius: 0px; border: 0px; }}",
@@ -666,7 +685,26 @@ class MainContent(QWidget):
 
         self.table.setRowCount(1)
         self._init_row_items(0)
-        layout.addWidget(self.table, 1)
+        self.table_frame = QFrame(self)
+        try:
+            self.table_frame.setObjectName("download_attendance_table_frame")
+        except Exception:
+            pass
+        try:
+            self.table_frame.setFrameShape(QFrame.Shape.Box)
+            self.table_frame.setFrameShadow(QFrame.Shadow.Plain)
+            self.table_frame.setLineWidth(1)
+        except Exception:
+            pass
+        self.table_frame.setStyleSheet(
+            f"QFrame#download_attendance_table_frame {{ border: 1px solid {COLOR_BORDER}; background-color: {MAIN_CONTENT_BG_COLOR}; }}"
+        )
+        frame_root = QVBoxLayout(self.table_frame)
+        frame_root.setContentsMargins(0, 0, 0, 0)
+        frame_root.setSpacing(0)
+        frame_root.addWidget(self.table)
+
+        layout.addWidget(self.table_frame, 1)
 
         self.apply_ui_settings()
         try:
@@ -680,11 +718,18 @@ class MainContent(QWidget):
         ui = get_download_attendance_ui()
 
         # Table fonts
-        header_font = QFont(UI_FONT, int(ui.table_font_size))
-        if FONT_WEIGHT_SEMIBOLD >= 500:
-            header_font.setWeight(QFont.Weight.DemiBold)
+        header_font = QFont(UI_FONT, int(ui.table_header_font_size))
+        header_font.setWeight(
+            QFont.Weight.DemiBold
+            if str(ui.table_header_font_weight) == "bold"
+            else QFont.Weight.Normal
+        )
         try:
             self.table.horizontalHeader().setFont(header_font)
+            w = 600 if str(ui.table_header_font_weight) == "bold" else 400
+            self.table.horizontalHeader().setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.table_header_font_size)}px; font-weight: {int(w)}; }}"
+            )
         except Exception:
             pass
 

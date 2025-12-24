@@ -53,6 +53,8 @@ from core.resource import (
     resource_path,
 )
 
+from core.ui_settings import get_shift_attendance_table_ui, ui_settings_bus
+
 
 def _setup_preview_table(
     table: QTableWidget,
@@ -90,6 +92,8 @@ def _setup_preview_table(
             [
                 f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
                 f"QHeaderView::section {{ background-color: {INPUT_COLOR_BG}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                f"QHeaderView::section:first {{ border-left: 1px solid {GRID_LINES_COLOR}; }}",
+                f"QTableCornerButton::section {{ background-color: {INPUT_COLOR_BG}; border: 1px solid {GRID_LINES_COLOR}; }}",
                 # Hover/Selected: use the same background and ensure it fills full cell with no rounded corners
                 f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; border-radius: 0px; margin: 0px; }}",
                 f"QTableWidget::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border-radius: 0px; margin: 0px; }}",
@@ -216,7 +220,7 @@ class ImportShiftAttendanceDialog(QDialog):
             "TC1",
             "TC2",
             "TC3",
-            "Lịch trình",
+            "Lịch làm việc",
         ]
         widths = [
             57,  # 42 + 15
@@ -260,6 +264,13 @@ class ImportShiftAttendanceDialog(QDialog):
         except Exception:
             pass
 
+        # Apply UI settings (font/alignment) and keep in sync.
+        self.apply_ui_settings()
+        try:
+            ui_settings_bus.changed.connect(self.apply_ui_settings)
+        except Exception:
+            pass
+
         bottom = QWidget(self)
         bottom_l = QHBoxLayout(bottom)
         bottom_l.setContentsMargins(0, 0, 0, 0)
@@ -280,6 +291,115 @@ class ImportShiftAttendanceDialog(QDialog):
 
         # Put one placeholder row so users see the full table structure.
         self._set_placeholder_rows()
+
+    def apply_ui_settings(self) -> None:
+        ui = get_shift_attendance_table_ui()
+
+        def _to_qt_align(s: str) -> Qt.AlignmentFlag:
+            v = str(s or "").strip().lower()
+            if v == "right":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+            if v == "center":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
+            return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+
+        body_font = QFont(UI_FONT, int(ui.font_size))
+        if str(ui.font_weight or "normal").strip().lower() == "bold":
+            body_font.setWeight(QFont.Weight.Bold)
+        else:
+            body_font.setWeight(QFont.Weight.Normal)
+
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        if str(ui.header_font_weight or "bold").strip().lower() == "bold":
+            header_font.setWeight(QFont.Weight.Bold)
+        else:
+            header_font.setWeight(QFont.Weight.Normal)
+
+        # Columns for this preview table (include checkbox + stt in front).
+        col_keys = [
+            "check",
+            "stt",
+            "employee_code",
+            "full_name",
+            "date",
+            "weekday",
+            "in_1",
+            "out_1",
+            "in_2",
+            "out_2",
+            "in_3",
+            "out_3",
+            "late",
+            "early",
+            "hours",
+            "work",
+            "leave",
+            "hours_plus",
+            "work_plus",
+            "leave_plus",
+            "tc1",
+            "tc2",
+            "tc3",
+            "schedule",
+        ]
+
+        # Header font: set both font and stylesheet to avoid QSS overriding.
+        try:
+            self.table.horizontalHeader().setFont(header_font)
+            fw_num = 700 if header_font.weight() >= QFont.Weight.DemiBold else 400
+            self.table.horizontalHeader().setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {fw_num}; }}"
+            )
+        except Exception:
+            pass
+        try:
+            for c in range(int(self.table.columnCount())):
+                it_h = self.table.horizontalHeaderItem(int(c))
+                if it_h is not None:
+                    it_h.setFont(header_font)
+        except Exception:
+            pass
+
+        # Body font + per-column overrides + alignment.
+        try:
+            self.table.setFont(body_font)
+        except Exception:
+            pass
+
+        try:
+            row_count = int(self.table.rowCount())
+            col_count = int(self.table.columnCount())
+            for r in range(row_count):
+                for c in range(col_count):
+                    it = self.table.item(int(r), int(c))
+                    if it is None:
+                        continue
+
+                    # Checkbox + STT always centered.
+                    if int(c) in (0, 1):
+                        it.setTextAlignment(
+                            int(
+                                Qt.AlignmentFlag.AlignVCenter
+                                | Qt.AlignmentFlag.AlignCenter
+                            )
+                        )
+                        it.setFont(body_font)
+                        continue
+
+                    key = col_keys[int(c)] if int(c) < len(col_keys) else ""
+                    align_s = (ui.column_align or {}).get(key, "center")
+                    it.setTextAlignment(int(_to_qt_align(align_s)))
+
+                    f = QFont(body_font)
+                    if key in (ui.column_bold or {}):
+                        f.setWeight(
+                            QFont.Weight.Bold
+                            if bool(ui.column_bold.get(key))
+                            else QFont.Weight.Normal
+                        )
+                    it.setFont(f)
+        except Exception:
+            pass
 
     def _set_status(self, text: str, ok: bool) -> None:
         self.label_status.setText(str(text or ""))
@@ -376,6 +496,8 @@ class ImportShiftAttendanceDialog(QDialog):
                 it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(r_idx, 2 + c_off, it)
 
+        self.apply_ui_settings()
+
     def _set_placeholder_rows(self) -> None:
         try:
             self._preview_rows = []
@@ -386,6 +508,7 @@ class ImportShiftAttendanceDialog(QDialog):
             stt = QTableWidgetItem("1")
             stt.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(0, 1, stt)
+            self.apply_ui_settings()
         except Exception:
             pass
 

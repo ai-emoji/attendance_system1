@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
     QDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -301,6 +302,13 @@ def _setup_table(
     horizontal_scroll: Qt.ScrollBarPolicy,
     column_widths: list[int] | None = None,
 ) -> None:
+    # table.mb: QFrame vẽ viền ngoài, QTableWidget chỉ vẽ grid bên trong
+    try:
+        table.setFrameShape(QFrame.Shape.NoFrame)
+        table.setLineWidth(0)
+    except Exception:
+        pass
+
     table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels(headers)
@@ -309,6 +317,11 @@ def _setup_table(
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     table.setShowGrid(True)
+    try:
+        table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+    except Exception:
+        pass
     table.setAlternatingRowColors(True)
     table.verticalHeader().setVisible(False)
     table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -339,8 +352,11 @@ def _setup_table(
     table.setStyleSheet(
         "\n".join(
             [
-                f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
+                f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
+                "QTableWidget::pane { border: 0px; }",
                 f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
+                f"QHeaderView::section:first {{ border-left: 1px solid {GRID_LINES_COLOR}; }}",
+                f"QTableCornerButton::section {{ background-color: {BG_TITLE_2_HEIGHT}; border: 1px solid {GRID_LINES_COLOR}; }}",
                 f"QTableWidget::item {{ padding-left: 8px; padding-right: 8px; }}",
                 f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; }}",
                 f"QTableWidget::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; }}",
@@ -349,6 +365,30 @@ def _setup_table(
             ]
         )
     )
+
+
+def _wrap_table_in_frame(
+    parent: QWidget, table: QTableWidget, object_name: str
+) -> QFrame:
+    frame = QFrame(parent)
+    try:
+        frame.setObjectName(object_name)
+    except Exception:
+        pass
+    try:
+        frame.setFrameShape(QFrame.Shape.Box)
+        frame.setFrameShadow(QFrame.Shadow.Plain)
+        frame.setLineWidth(1)
+    except Exception:
+        pass
+    frame.setStyleSheet(
+        f"QFrame#{object_name} {{ border: 1px solid {COLOR_BORDER}; background-color: {MAIN_CONTENT_BG_COLOR}; }}"
+    )
+    root = QVBoxLayout(frame)
+    root.setContentsMargins(0, 0, 0, 0)
+    root.setSpacing(0)
+    root.addWidget(table)
+    return frame
 
 
 class MainContent1(QWidget):
@@ -442,6 +482,10 @@ class MainContent1(QWidget):
         except Exception:
             pass
 
+        self.table_frame = _wrap_table_in_frame(
+            self, self.table, "shift_attendance_table1_frame"
+        )
+
         # Keep checkbox + STT compact; stretch the rest.
         _h = self.table.horizontalHeader()
         _h.setStretchLastSection(True)
@@ -481,7 +525,7 @@ class MainContent1(QWidget):
         f.addStretch(1)
 
         layout.addWidget(header)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.table_frame, 1)
         layout.addWidget(footer)
 
         self.btn_refresh.clicked.connect(self.refresh_clicked.emit)
@@ -584,13 +628,18 @@ class MainContent1(QWidget):
         self.table.setFont(body_font)
 
         # Header font
-        header_font = QFont(UI_FONT, int(ui.font_size))
-        if ui.font_weight == "bold":
-            header_font.setWeight(QFont.Weight.DemiBold)
-        else:
-            header_font.setWeight(QFont.Weight.Normal)
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        header_font.setWeight(
+            QFont.Weight.DemiBold
+            if ui.header_font_weight == "bold"
+            else QFont.Weight.Normal
+        )
         try:
             self.table.horizontalHeader().setFont(header_font)
+            w = 600 if ui.header_font_weight == "bold" else 400
+            self.table.horizontalHeader().setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {int(w)}; }}"
+            )
         except Exception:
             pass
 
@@ -831,8 +880,12 @@ class MainContent2(QWidget):
         # Emoji checkbox toggle on click
         self.table.cellClicked.connect(self._on_cell_clicked)
 
+        self.table_frame = _wrap_table_in_frame(
+            self, self.table, "shift_attendance_table2_frame"
+        )
+
         layout.addWidget(header)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.table_frame, 1)
 
         self.btn_export_grid.clicked.connect(self.export_grid_clicked.emit)
         self.btn_detail.clicked.connect(self.detail_clicked.emit)
@@ -955,13 +1008,18 @@ class MainContent2(QWidget):
         self.table.setFont(body_font)
 
         # Header font
-        header_font = QFont(UI_FONT, int(ui.font_size))
-        if ui.font_weight == "bold":
-            header_font.setWeight(QFont.Weight.DemiBold)
-        else:
-            header_font.setWeight(QFont.Weight.Normal)
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        header_font.setWeight(
+            QFont.Weight.DemiBold
+            if ui.header_font_weight == "bold"
+            else QFont.Weight.Normal
+        )
         try:
             self.table.horizontalHeader().setFont(header_font)
+            w = 600 if ui.header_font_weight == "bold" else 400
+            self.table.horizontalHeader().setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {int(w)}; }}"
+            )
         except Exception:
             pass
 

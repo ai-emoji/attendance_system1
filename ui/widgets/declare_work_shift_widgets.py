@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QFrame,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -42,6 +43,8 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtWidgets import QHeaderView
+
+from core.ui_settings import get_declare_work_shift_table_ui, ui_settings_bus
 
 from core.resource import (
     BG_TITLE_1_HEIGHT,
@@ -245,6 +248,12 @@ class MainContent(QWidget):
         left_layout.setSpacing(0)
 
         self.table = QTableWidget(left)
+        # table.mb: QFrame vẽ viền ngoài, QTableWidget chỉ vẽ grid bên trong
+        try:
+            self.table.setFrameShape(QFrame.Shape.NoFrame)
+            self.table.setLineWidth(0)
+        except Exception:
+            pass
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["ID", "Mã ca", "Giờ vào", "Giờ ra"])
@@ -254,6 +263,15 @@ class MainContent(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setShowGrid(True)
+        try:
+            self.table.setVerticalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+            self.table.setHorizontalScrollMode(
+                QAbstractItemView.ScrollMode.ScrollPerPixel
+            )
+        except Exception:
+            pass
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -284,11 +302,17 @@ class MainContent(QWidget):
         self.table.setStyleSheet(
             "\n".join(
                 [
-                    f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
+                    f"QTableWidget {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
+                    "QTableWidget::pane { border: 0px; }",
                     f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; }}",
-                    f"QTableWidget::item {{ padding-left: 8px; padding-right: 8px; }}",
-                    f"QTableWidget::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; }}",
-                    f"QTableWidget::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border-radius: 0px; border: 0px; }}",
+                    f"QHeaderView::section:first {{ border-left: 1px solid {GRID_LINES_COLOR}; }}",
+                    f"QTableCornerButton::section {{ background-color: {BG_TITLE_2_HEIGHT}; border: 1px solid {GRID_LINES_COLOR}; }}",
+                    # Force row striping on items (some styles override base/alternate colors)
+                    f"QTableWidget::item, QTableView::item {{ background-color: {ODD_ROW_BG_COLOR}; padding-left: 8px; padding-right: 8px; }}",
+                    f"QTableWidget::item:alternate, QTableView::item:alternate {{ background-color: {EVEN_ROW_BG_COLOR}; }}",
+                    # Don't override zebra colors on hover/selection (bỏ màu cũ)
+                    f"QTableWidget::item:hover, QTableView::item:hover {{ background-color: transparent; }}",
+                    f"QTableWidget::item:selected, QTableView::item:selected {{ background-color: transparent; color: {COLOR_TEXT_PRIMARY}; border-radius: 0px; border: 0px; }}",
                     "QTableWidget::item:focus { outline: none; }",
                     "QTableWidget:focus { outline: none; }",
                 ]
@@ -299,7 +323,32 @@ class MainContent(QWidget):
         self.table.setRowCount(1)
         self._init_row_items(0)
 
-        left_layout.addWidget(self.table, 1)
+        self.apply_ui_settings()
+        try:
+            ui_settings_bus.changed.connect(self.apply_ui_settings)
+        except Exception:
+            pass
+
+        self.table_frame = QFrame(left)
+        try:
+            self.table_frame.setObjectName("declare_work_shift_table_frame")
+        except Exception:
+            pass
+        try:
+            self.table_frame.setFrameShape(QFrame.Shape.Box)
+            self.table_frame.setFrameShadow(QFrame.Shadow.Plain)
+            self.table_frame.setLineWidth(1)
+        except Exception:
+            pass
+        self.table_frame.setStyleSheet(
+            f"QFrame#declare_work_shift_table_frame {{ border: 1px solid {COLOR_BORDER}; background-color: {MAIN_CONTENT_BG_COLOR}; }}"
+        )
+        frame_root = QVBoxLayout(self.table_frame)
+        frame_root.setContentsMargins(0, 0, 0, 0)
+        frame_root.setSpacing(0)
+        frame_root.addWidget(self.table)
+
+        left_layout.addWidget(self.table_frame, 1)
         root.addWidget(left, 1)
 
         # -----------------
@@ -579,6 +628,87 @@ class MainContent(QWidget):
             self.table.clearSelection()
             self.table.setCurrentCell(needed - 1, 1)
 
+        self.apply_ui_settings()
+
+    def apply_ui_settings(self) -> None:
+        ui = get_declare_work_shift_table_ui()
+
+        def _to_qt_align(s: str) -> Qt.AlignmentFlag:
+            v = str(s or "").strip().lower()
+            if v == "right":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+            if v == "center":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
+            return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+
+        body_font = QFont(UI_FONT, int(ui.font_size))
+        if str(ui.font_weight or "normal").strip().lower() == "bold":
+            body_font.setWeight(QFont.Weight.Bold)
+        else:
+            body_font.setWeight(QFont.Weight.Normal)
+
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        if str(ui.header_font_weight or "bold").strip().lower() == "bold":
+            header_font.setWeight(QFont.Weight.Bold)
+        else:
+            header_font.setWeight(QFont.Weight.Normal)
+
+        try:
+            header = self.table.horizontalHeader()
+            header.setFont(header_font)
+            fw_num = 700 if header_font.weight() >= QFont.Weight.DemiBold else 400
+            header.setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {fw_num}; }}"
+            )
+        except Exception:
+            pass
+
+        col_keys = ["id", "shift_code", "time_in", "time_out"]
+
+        try:
+            for c in range(int(self.table.columnCount())):
+                it_h = self.table.horizontalHeaderItem(int(c))
+                if it_h is not None:
+                    it_h.setFont(header_font)
+        except Exception:
+            pass
+
+        try:
+            self.table.setFont(body_font)
+        except Exception:
+            pass
+
+        try:
+            for r in range(int(self.table.rowCount())):
+                for c in range(int(self.table.columnCount())):
+                    it = self.table.item(int(r), int(c))
+                    if it is None:
+                        continue
+                    if int(c) == 0:
+                        it.setTextAlignment(
+                            int(
+                                Qt.AlignmentFlag.AlignVCenter
+                                | Qt.AlignmentFlag.AlignCenter
+                            )
+                        )
+                        it.setFont(body_font)
+                        continue
+
+                    key = col_keys[int(c)] if int(c) < len(col_keys) else ""
+                    align_s = (ui.column_align or {}).get(key, "center")
+                    it.setTextAlignment(int(_to_qt_align(align_s)))
+
+                    f = QFont(body_font)
+                    if key in (ui.column_bold or {}):
+                        f.setWeight(
+                            QFont.Weight.Bold
+                            if bool(ui.column_bold.get(key))
+                            else QFont.Weight.Normal
+                        )
+                    it.setFont(f)
+        except Exception:
+            pass
+
     def _init_row_items(self, row: int) -> None:
         id_item = QTableWidgetItem("")
         id_item.setFont(self._font_normal)
@@ -672,6 +802,8 @@ class MainContent(QWidget):
                 self._set_row_data(r, shift_id, code, time_in, time_out)
             else:
                 self._set_row_data(r, None, "", "", "")
+
+        self.apply_ui_settings()
 
     def get_selected_work_shift(self) -> tuple[int, str] | None:
         """Trả về (id, shift_code) của dòng đang chọn."""

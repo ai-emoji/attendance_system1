@@ -1142,6 +1142,8 @@ class EmployeeTable(QTableView):
                 [
                     f"QTableView {{ background-color: {ODD_ROW_BG_COLOR}; alternate-background-color: {EVEN_ROW_BG_COLOR}; gridline-color: {GRID_LINES_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 1px solid {COLOR_BORDER}; }}",
                     f"QHeaderView::section {{ background-color: {BG_TITLE_2_HEIGHT}; color: {COLOR_TEXT_PRIMARY}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 0px; border-right: 1px solid {GRID_LINES_COLOR}; height: {ROW_HEIGHT}px; padding-right: 22px; }}",
+                    f"QHeaderView::section:first {{ border-left: 1px solid {GRID_LINES_COLOR}; }}",
+                    f"QTableCornerButton::section {{ background-color: {BG_TITLE_2_HEIGHT}; border-top: 1px solid {GRID_LINES_COLOR}; border-bottom: 1px solid {GRID_LINES_COLOR}; border-left: 1px solid {GRID_LINES_COLOR}; border-right: 1px solid {GRID_LINES_COLOR}; }}",
                     f"QTableView::item:hover {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; }}",
                     f"QTableView::item:selected {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
                     f"QTableView::item:selected:active {{ background-color: {HOVER_ROW_BG_COLOR}; color: {COLOR_TEXT_PRIMARY}; border: 0px; }}",
@@ -1189,13 +1191,19 @@ class EmployeeTable(QTableView):
         self.setFont(body_font)
 
         # Header font
-        header_font = QFont(UI_FONT, int(ui.font_size))
-        if ui.font_weight == "bold":
-            header_font.setWeight(QFont.Weight.DemiBold)
-        else:
-            header_font.setWeight(QFont.Weight.Normal)
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        header_font.setWeight(
+            QFont.Weight.DemiBold
+            if ui.header_font_weight == "bold"
+            else QFont.Weight.Normal
+        )
         try:
             self.horizontalHeader().setFont(header_font)
+            # Ensure header font is not overridden by QSS.
+            w = 600 if ui.header_font_weight == "bold" else 400
+            self.horizontalHeader().setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {int(w)}; }}"
+            )
         except Exception:
             pass
 
@@ -1509,8 +1517,28 @@ class MainContent(QWidget):
 
         self.table = EmployeeTable(right)
 
+        # table.mb: QFrame vẽ viền ngoài, view không vẽ border ngoài
+        self.table_frame = QFrame(right)
+        try:
+            self.table_frame.setObjectName("employee_table_frame")
+        except Exception:
+            pass
+        try:
+            self.table_frame.setFrameShape(QFrame.Shape.Box)
+            self.table_frame.setFrameShadow(QFrame.Shadow.Plain)
+            self.table_frame.setLineWidth(1)
+        except Exception:
+            pass
+        self.table_frame.setStyleSheet(
+            f"QFrame#employee_table_frame {{ border: 1px solid {COLOR_BORDER}; background-color: {MAIN_CONTENT_BG_COLOR}; }}"
+        )
+        frame_root = QVBoxLayout(self.table_frame)
+        frame_root.setContentsMargins(0, 0, 0, 0)
+        frame_root.setSpacing(0)
+        frame_root.addWidget(self.table)
+
         right_layout.addWidget(header, 0)
-        right_layout.addWidget(self.table, 1)
+        right_layout.addWidget(self.table_frame, 1)
 
         splitter.addWidget(self.department_tree)
         splitter.addWidget(right)

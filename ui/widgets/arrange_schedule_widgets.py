@@ -1,6 +1,6 @@
 """ui.widgets.arrange_schedule_widgets
 
-UI cho màn "Sắp xếp ca theo lịch trình".
+UI cho màn "Khai báo lịch làm việc".
 
 Yêu cầu (tóm tắt):
 - TitleBar1
@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtWidgets import QHeaderView
+
+from core.ui_settings import get_arrange_schedule_table_ui, ui_settings_bus
 
 from core.resource import (
     BG_TITLE_1_HEIGHT,
@@ -320,6 +322,69 @@ class MainLeft(QWidget):
 
         self.table.itemSelectionChanged.connect(lambda: self.schedule_selected.emit())
 
+        self.apply_ui_settings()
+        try:
+            ui_settings_bus.changed.connect(self.apply_ui_settings)
+        except Exception:
+            pass
+
+    def apply_ui_settings(self) -> None:
+        ui = get_arrange_schedule_table_ui()
+
+        def _to_qt_align(s: str) -> Qt.AlignmentFlag:
+            v = str(s or "").strip().lower()
+            if v == "right":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+            if v == "center":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
+            return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+
+        body_font = QFont(UI_FONT, int(ui.font_size))
+        if str(ui.font_weight or "normal").strip().lower() == "bold":
+            body_font.setWeight(QFont.Weight.Bold)
+        else:
+            body_font.setWeight(QFont.Weight.Normal)
+
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        if str(ui.header_font_weight or "bold").strip().lower() == "bold":
+            header_font.setWeight(QFont.Weight.Bold)
+        else:
+            header_font.setWeight(QFont.Weight.Normal)
+
+        try:
+            header = self.table.horizontalHeader()
+            header.setFont(header_font)
+            fw_num = 700 if header_font.weight() >= QFont.Weight.DemiBold else 400
+            header.setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {fw_num}; }}"
+            )
+        except Exception:
+            pass
+
+        try:
+            self.table.setFont(body_font)
+        except Exception:
+            pass
+
+        try:
+            key = "list_schedule_name"
+            align_s = (ui.column_align or {}).get(key, "center")
+            for r in range(int(self.table.rowCount())):
+                it = self.table.item(int(r), 1)
+                if it is None:
+                    continue
+                it.setTextAlignment(int(_to_qt_align(align_s)))
+                f = QFont(body_font)
+                if key in (ui.column_bold or {}):
+                    f.setWeight(
+                        QFont.Weight.Bold
+                        if bool(ui.column_bold.get(key))
+                        else QFont.Weight.Normal
+                    )
+                it.setFont(f)
+        except Exception:
+            pass
+
     def set_schedules(self, rows: list[tuple[int, str]]) -> None:
         # Add extra option: "Chưa sắp xếp" (id=0)
         all_rows: list[tuple[int, str]] = [(0, "Chưa sắp xếp"), *list(rows or [])]
@@ -333,6 +398,8 @@ class MainLeft(QWidget):
             it_name = QTableWidgetItem(str(name or ""))
             it_name.setTextAlignment(int(Qt.AlignmentFlag.AlignCenter))
             self.table.setItem(r, 1, it_name)
+
+        self.apply_ui_settings()
 
     def get_selected_schedule_id(self) -> int | None:
         row = self.table.currentRow()
@@ -532,6 +599,94 @@ class MainRight(QWidget):
         # Click open dialog as requested
         self.btn_arrange.clicked.connect(self._open_arrange_dialog)
 
+        self.apply_ui_settings()
+        try:
+            ui_settings_bus.changed.connect(self.apply_ui_settings)
+        except Exception:
+            pass
+
+    def apply_ui_settings(self) -> None:
+        ui = get_arrange_schedule_table_ui()
+
+        def _to_qt_align(s: str) -> Qt.AlignmentFlag:
+            v = str(s or "").strip().lower()
+            if v == "right":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+            if v == "center":
+                return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
+            return Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+
+        body_font = QFont(UI_FONT, int(ui.font_size))
+        if str(ui.font_weight or "normal").strip().lower() == "bold":
+            body_font.setWeight(QFont.Weight.Bold)
+        else:
+            body_font.setWeight(QFont.Weight.Normal)
+
+        header_font = QFont(UI_FONT, int(ui.header_font_size))
+        if str(ui.header_font_weight or "bold").strip().lower() == "bold":
+            header_font.setWeight(QFont.Weight.Bold)
+        else:
+            header_font.setWeight(QFont.Weight.Normal)
+
+        try:
+            header = self.table.horizontalHeader()
+            header.setFont(header_font)
+            fw_num = 700 if header_font.weight() >= QFont.Weight.DemiBold else 400
+            header.setStyleSheet(
+                f"QHeaderView::section {{ font-size: {int(ui.header_font_size)}px; font-weight: {fw_num}; }}"
+            )
+        except Exception:
+            pass
+
+        try:
+            for c in range(int(self.table.columnCount())):
+                it_h = self.table.horizontalHeaderItem(int(c))
+                if it_h is not None:
+                    it_h.setFont(header_font)
+        except Exception:
+            pass
+
+        try:
+            self.table.setFont(body_font)
+        except Exception:
+            pass
+
+        try:
+            # Apply per-column settings only for detail table cells (col 1..).
+            for r in range(int(self.table.rowCount())):
+                for c in range(int(self.table.columnCount())):
+                    it = self.table.item(int(r), int(c))
+                    if it is None:
+                        continue
+                    if int(c) == 0:
+                        it.setTextAlignment(
+                            int(
+                                Qt.AlignmentFlag.AlignVCenter
+                                | Qt.AlignmentFlag.AlignCenter
+                            )
+                        )
+                        it.setFont(body_font)
+                        continue
+
+                    if int(c) == 1:
+                        key = "detail_day"
+                    else:
+                        key = f"detail_shift_{int(c - 1)}"
+
+                    align_s = (ui.column_align or {}).get(key, "center")
+                    it.setTextAlignment(int(_to_qt_align(align_s)))
+
+                    f = QFont(body_font)
+                    if key in (ui.column_bold or {}):
+                        f.setWeight(
+                            QFont.Weight.Bold
+                            if bool(ui.column_bold.get(key))
+                            else QFont.Weight.Normal
+                        )
+                    it.setFont(f)
+        except Exception:
+            pass
+
     def _open_arrange_dialog(self) -> None:
         self.arrange_clicked.emit()
         dlg = ArrangeScheduleDialog(self)
@@ -590,6 +745,7 @@ class MainRight(QWidget):
                 self.table.setItem(r, c, it)
 
         self._apply_day_row_colors()
+        self.apply_ui_settings()
 
     def _apply_day_row_colors(self) -> None:
         """Giữ màu chữ: Chủ nhật (đỏ), Ngày lễ (xanh) cho toàn bộ cột đang có."""
@@ -630,9 +786,7 @@ class ArrangeScheduleView(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        self.title = TitleBar1(
-            "Sắp xếp ca theo lịch trình", ICON_ARRANGE_SCHEDULE, self
-        )
+        self.title = TitleBar1("Khai báo lịch làm việc", ICON_ARRANGE_SCHEDULE, self)
 
         content = QWidget(self)
         row = QHBoxLayout(content)

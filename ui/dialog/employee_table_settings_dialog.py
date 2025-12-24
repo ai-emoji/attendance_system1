@@ -85,6 +85,18 @@ class EmployeeTableSettingsDialog(QDialog):
         idx_w = self.cbo_table_weight.findData(self._ui.font_weight)
         self.cbo_table_weight.setCurrentIndex(idx_w if idx_w >= 0 else 0)
 
+        self.spin_header_font_size = QSpinBox(group)
+        self.spin_header_font_size.setRange(8, 24)
+        self.spin_header_font_size.setValue(int(self._ui.header_font_size))
+        self.spin_header_font_size.setFont(font_normal)
+
+        self.cbo_header_weight = QComboBox(group)
+        self.cbo_header_weight.setFont(font_normal)
+        self.cbo_header_weight.addItem("Nhạt", "normal")
+        self.cbo_header_weight.addItem("Đậm", "bold")
+        idx_hw = self.cbo_header_weight.findData(self._ui.header_font_weight)
+        self.cbo_header_weight.setCurrentIndex(idx_hw if idx_hw >= 0 else 1)
+
         self.cbo_column = QComboBox(group)
         self.cbo_column.setFont(font_normal)
         # Column list: keep in sync with employee_widgets.py keys.
@@ -160,6 +172,8 @@ class EmployeeTableSettingsDialog(QDialog):
 
         form.addRow("Kích thước chữ", self.spin_font_size)
         form.addRow("Chữ đậm/nhạt (toàn bảng)", self.cbo_table_weight)
+        form.addRow("Kích thước chữ (header)", self.spin_header_font_size)
+        form.addRow("Chữ đậm/nhạt (header)", self.cbo_header_weight)
         form.addRow("Chọn cột", self.cbo_column)
         form.addRow("Căn lề cột", self.cbo_align)
         form.addRow("Đậm/nhạt cột", self.cbo_column_weight)
@@ -209,6 +223,8 @@ class EmployeeTableSettingsDialog(QDialog):
         try:
             fs = int(self.spin_font_size.value())
             fw = str(self.cbo_table_weight.currentData() or "normal").strip()
+            hfs = int(self.spin_header_font_size.value())
+            hfw = str(self.cbo_header_weight.currentData() or "bold").strip()
             col_key = str(self.cbo_column.currentData() or "").strip()
             align = str(self.cbo_align.currentData() or "left").strip()
             col_weight = str(self.cbo_column_weight.currentData() or "inherit").strip()
@@ -216,6 +232,8 @@ class EmployeeTableSettingsDialog(QDialog):
             update_employee_table_ui(
                 font_size=fs,
                 font_weight=fw,
+                header_font_size=hfs,
+                header_font_weight=hfw,
                 column_key=col_key,
                 column_align=align,
                 column_bold=col_weight,
