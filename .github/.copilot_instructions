@@ -179,3 +179,4 @@ hãy đọc dõ .copilot_instructions
 
 
 self.table.setFocusPolicy(Qt.NoFocus)
+self.table.setFocusPolicy(Qt.NoFocus)
