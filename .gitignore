@@ -3,15 +3,23 @@
 # =========================
 __pycache__/
 *.py[cod]
-*.pyo
 *.pyd
 *.so
 *.egg-info/
 .eggs/
+
+# =========================
+# Build / Release
+# =========================
 build/
 dist/
 releases/
-*.egg
+updates/
+_internal/
+*.exe
+*.dll
+*.zip
+*.pak
 
 # =========================
 # Virtual Environment
@@ -19,29 +27,24 @@ releases/
 .venv/
 venv/
 env/
-ENV/
 
 # =========================
 # Logs
 # =========================
 logs/
-log/
 *.log
 
 # =========================
-# Environment / Secrets
+# Env / Secrets
 # =========================
 .env
 .env.*
-*.env
 
 # =========================
-# IDE / Editor
+# IDE
 # =========================
 .vscode/
 .idea/
-*.swp
-*.swo
 
 # =========================
 # OS
@@ -49,28 +52,3 @@ log/
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# =========================
-# Database local
-# =========================
-*.sqlite3
-*.db
-
-# =========================
-# Test / Coverage
-# =========================
-.coverage
-htmlcov/
-.pytest_cache/
-
-# =========================
-# Node (nếu có frontend)
-# =========================
-node_modules/
-npm-debug.log*
-yarn-error.log*
-
-# =========================
-# Git
-# =========================
-*.orig
