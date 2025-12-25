@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ExportGridListSettings:
+    export_kind: str = "grid"  # grid|detail
+    time_pairs: int = 4  # 2|4|6 (number of time columns)
     company_name: str = ""
     company_address: str = ""
     company_phone: str = ""
@@ -74,6 +76,17 @@ class ExportGridListService:
                 a = str(v or "left").strip().lower()
                 return a if a in {"left", "center", "right"} else "left"
 
+            def _norm_export_kind(v) -> str:
+                k = str(v or "grid").strip().lower()
+                return k if k in {"grid", "detail"} else "grid"
+
+            def _norm_time_pairs(v) -> int:
+                try:
+                    iv = int(v)
+                except Exception:
+                    iv = 4
+                return iv if iv in {2, 4, 6} else 4
+
             note_align = _norm_align(row.get("note_align"))
             detail_note_align = _norm_align(row.get("detail_note_align"))
             creator_align = _norm_align(row.get("creator_align"))
@@ -109,6 +122,8 @@ class ExportGridListService:
                 return _b(v)
 
             return ExportGridListSettings(
+                export_kind=_norm_export_kind(row.get("export_kind")),
+                time_pairs=_norm_time_pairs(row.get("time_pairs")),
                 company_name=str(row.get("company_name") or ""),
                 company_address=str(row.get("company_address") or ""),
                 company_phone=str(row.get("company_phone") or ""),
@@ -188,7 +203,21 @@ class ExportGridListService:
         company_phone_size = _norm_size(s.company_phone_font_size)
 
         try:
+            export_kind = (
+                str(getattr(s, "export_kind", "grid") or "grid").strip().lower()
+            )
+            if export_kind not in {"grid", "detail"}:
+                export_kind = "grid"
+            try:
+                time_pairs = int(getattr(s, "time_pairs", 4) or 4)
+            except Exception:
+                time_pairs = 4
+            if time_pairs not in {2, 4, 6}:
+                time_pairs = 4
+
             self._repo.upsert_settings(
+                export_kind=export_kind,
+                time_pairs=time_pairs,
                 company_name=(company_name or None),
                 company_address=(company_address or None),
                 company_phone=(company_phone or None),

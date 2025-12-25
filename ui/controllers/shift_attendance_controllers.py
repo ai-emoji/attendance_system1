@@ -196,7 +196,22 @@ class ShiftAttendanceController:
                 if saved is not None
                 else NoteStyle()
             ),
+            export_kind="grid",
+            time_pairs=(saved.time_pairs if saved is not None else 4),
         )
+
+        def _selected_time_pairs() -> int:
+            try:
+                return int(dialog.get_time_pairs())
+            except Exception:
+                return 4
+
+        def _pair_excludes(tp: int) -> set[str]:
+            if int(tp) == 2:
+                return {"Vào 2", "Ra 2", "Vào 3", "Ra 3"}
+            if int(tp) == 4:
+                return {"Vào 3", "Ra 3"}
+            return set()
 
         def _save_settings() -> tuple[bool, str]:
             vals = dialog.get_values()
@@ -205,7 +220,11 @@ class ShiftAttendanceController:
             cn_st = dialog.get_company_name_style()
             ca_st = dialog.get_company_address_style()
             cp_st = dialog.get_company_phone_style()
+            export_kind = "grid"
+            time_pairs = _selected_time_pairs()
             settings = ExportGridListSettings(
+                export_kind=export_kind,
+                time_pairs=time_pairs,
                 company_name=vals.get("company_name", ""),
                 company_address=vals.get("company_address", ""),
                 company_phone=vals.get("company_phone", ""),
@@ -230,53 +249,67 @@ class ShiftAttendanceController:
                 creator_italic=bool(creator_st.italic),
                 creator_underline=bool(creator_st.underline),
                 creator_align=str(creator_st.align or "left"),
-                note_text=vals.get("note_text", ""),
-                note_font_size=int(note_st.font_size),
-                note_bold=bool(note_st.bold),
-                note_italic=bool(note_st.italic),
-                note_underline=bool(note_st.underline),
-                note_align=str(note_st.align or "left"),
+                note_text=(
+                    vals.get("note_text", "")
+                    if export_kind == "grid"
+                    else (saved.note_text if saved else "")
+                ),
+                note_font_size=(
+                    int(note_st.font_size)
+                    if export_kind == "grid"
+                    else (int(saved.note_font_size) if saved else 13)
+                ),
+                note_bold=(
+                    bool(note_st.bold)
+                    if export_kind == "grid"
+                    else (bool(saved.note_bold) if saved else False)
+                ),
+                note_italic=(
+                    bool(note_st.italic)
+                    if export_kind == "grid"
+                    else (bool(saved.note_italic) if saved else False)
+                ),
+                note_underline=(
+                    bool(note_st.underline)
+                    if export_kind == "grid"
+                    else (bool(saved.note_underline) if saved else False)
+                ),
+                note_align=(
+                    str(note_st.align or "left")
+                    if export_kind == "grid"
+                    else (str(saved.note_align) if saved else "left")
+                ),
+                detail_note_text=(
+                    vals.get("note_text", "")
+                    if export_kind == "detail"
+                    else (str(saved.detail_note_text or "") if saved else "")
+                ),
+                detail_note_font_size=(
+                    int(note_st.font_size)
+                    if export_kind == "detail"
+                    else (int(saved.detail_note_font_size) if saved else 13)
+                ),
+                detail_note_bold=(
+                    bool(note_st.bold)
+                    if export_kind == "detail"
+                    else (bool(saved.detail_note_bold) if saved else False)
+                ),
+                detail_note_italic=(
+                    bool(note_st.italic)
+                    if export_kind == "detail"
+                    else (bool(saved.detail_note_italic) if saved else False)
+                ),
+                detail_note_underline=(
+                    bool(note_st.underline)
+                    if export_kind == "detail"
+                    else (bool(saved.detail_note_underline) if saved else False)
+                ),
+                detail_note_align=(
+                    str(note_st.align or "left")
+                    if export_kind == "detail"
+                    else (str(saved.detail_note_align) if saved else "left")
+                ),
             )
-            # Preserve detail note when saving from Xuất lưới
-            if saved is not None:
-                settings = ExportGridListSettings(
-                    company_name=settings.company_name,
-                    company_address=settings.company_address,
-                    company_phone=settings.company_phone,
-                    company_name_font_size=settings.company_name_font_size,
-                    company_name_bold=settings.company_name_bold,
-                    company_name_italic=settings.company_name_italic,
-                    company_name_underline=settings.company_name_underline,
-                    company_name_align=settings.company_name_align,
-                    company_address_font_size=settings.company_address_font_size,
-                    company_address_bold=settings.company_address_bold,
-                    company_address_italic=settings.company_address_italic,
-                    company_address_underline=settings.company_address_underline,
-                    company_address_align=settings.company_address_align,
-                    company_phone_font_size=settings.company_phone_font_size,
-                    company_phone_bold=settings.company_phone_bold,
-                    company_phone_italic=settings.company_phone_italic,
-                    company_phone_underline=settings.company_phone_underline,
-                    company_phone_align=settings.company_phone_align,
-                    creator=settings.creator,
-                    creator_font_size=settings.creator_font_size,
-                    creator_bold=settings.creator_bold,
-                    creator_italic=settings.creator_italic,
-                    creator_underline=settings.creator_underline,
-                    creator_align=settings.creator_align,
-                    note_text=settings.note_text,
-                    note_font_size=settings.note_font_size,
-                    note_bold=settings.note_bold,
-                    note_italic=settings.note_italic,
-                    note_underline=settings.note_underline,
-                    note_align=settings.note_align,
-                    detail_note_text=str(saved.detail_note_text or ""),
-                    detail_note_font_size=int(saved.detail_note_font_size),
-                    detail_note_bold=bool(saved.detail_note_bold),
-                    detail_note_italic=bool(saved.detail_note_italic),
-                    detail_note_underline=bool(saved.detail_note_underline),
-                    detail_note_align=str(saved.detail_note_align or "left"),
-                )
             ok, msg = export_service.save(settings, context="xuất lưới")
             dialog.set_status(msg, ok=ok)
             return ok, msg
@@ -318,14 +351,17 @@ class ShiftAttendanceController:
             from_file = ""
             to_file = ""
 
-        # Choose output file
-        if from_file and to_file:
-            default_name = f"Xuất Lưới_{from_file}_{to_file}.xlsx"
-        else:
-            default_name = "Xuất Lưới.xlsx"
+        time_pairs = _selected_time_pairs()
+        title = "Xuất lưới chấm công"
+        default_name = (
+            f"Xuất Lưới_{from_file}_{to_file}.xlsx"
+            if from_file and to_file
+            else "Xuất Lưới.xlsx"
+        )
+
         file_path, _ = QFileDialog.getSaveFileName(
             self._parent_window,
-            "Xuất lưới chấm công",
+            title,
             default_name,
             "Excel (*.xlsx)",
         )
@@ -338,12 +374,10 @@ class ShiftAttendanceController:
             phone=str(vals.get("company_phone", "") or "").strip(),
         )
 
-        # Auto-hide unnecessary in/out columns based on Arrange Schedule in_out_mode.
-        # Conservative rules to avoid losing data:
-        # - If any schedule has mode 'device' OR unknown => keep all columns.
-        # - If all schedules are 'first_last' => hide Vào/Ra 2-3.
-        # - If any schedule is 'auto' (and none device/unknown) => hide pairs beyond max actually-used pair.
+        # Decide schedule-driven visibility (only force-hide for strict first_last),
+        # then apply the user's selected time_pairs cap (2/4/6).
         force_exclude_headers: set[str] | None = None
+        in_out_mode_by_employee_code: dict[str, str | None] = {}
         try:
             t = self._content2.table
             row_count = int(t.rowCount())
@@ -359,6 +393,7 @@ class ShiftAttendanceController:
                 return None
 
             col_schedule = _find_col("Lịch làm việc")
+            col_emp = _find_col("Mã nv")
             col_in2 = _find_col("Vào 2")
             col_out2 = _find_col("Ra 2")
             col_in3 = _find_col("Vào 3")
@@ -366,6 +401,7 @@ class ShiftAttendanceController:
 
             schedule_names: list[str] = []
             max_pair_used = 1
+            emp_to_schedules: dict[str, set[str]] = {}
 
             for r in rows_to_export:
                 rr = int(r)
@@ -377,6 +413,13 @@ class ShiftAttendanceController:
                     s = "" if it is None else str(it.text() or "").strip()
                     if s:
                         schedule_names.append(s)
+                        if col_emp is not None:
+                            it2 = t.item(rr, int(col_emp))
+                            emp_code = (
+                                "" if it2 is None else str(it2.text() or "").strip()
+                            )
+                            if emp_code:
+                                emp_to_schedules.setdefault(emp_code, set()).add(s)
 
                 def _has_text(col: int | None) -> bool:
                     if col is None:
@@ -399,17 +442,29 @@ class ShiftAttendanceController:
                 has_device = any(m == "device" for m in modes)
                 has_auto = any(m == "auto" for m in modes)
 
-                if not has_unknown and not has_device:
-                    if has_auto:
-                        if max_pair_used <= 1:
-                            force_exclude_headers = {"Vào 2", "Ra 2", "Vào 3", "Ra 3"}
-                        elif max_pair_used == 2:
-                            force_exclude_headers = {"Vào 3", "Ra 3"}
+                # IMPORTANT: Export columns are controlled by the user's 2/4/6 selection.
+                # Do not force-hide pairs based on schedule mode here.
+
+                for emp_code, ss in (emp_to_schedules or {}).items():
+                    emp_modes = [mode_map.get(x) for x in (ss or set())]
+                    if any(m is None for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "device"
+                    elif any(m == "device" for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "device"
+                    elif any(m == "auto" for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "auto"
+                    elif any(m == "first_last" for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "first_last"
                     else:
-                        # All first_last
-                        force_exclude_headers = {"Vào 2", "Ra 2", "Vào 3", "Ra 3"}
+                        in_out_mode_by_employee_code[emp_code] = None
         except Exception:
             force_exclude_headers = None
+            in_out_mode_by_employee_code = {}
+
+        # Apply user's selected 2/4/6 time-pair cap.
+        cap_ex = _pair_excludes(time_pairs)
+        if cap_ex:
+            force_exclude_headers = set(force_exclude_headers or set()) | cap_ex
 
         ok, msg = export_shift_attendance_grid_xlsx(
             file_path=file_path,
@@ -459,7 +514,7 @@ class ShiftAttendanceController:
         )
         MessageDialog.info(
             self._parent_window,
-            "Xuất lưới chấm công",
+            title,
             msg,
         )
 
@@ -576,7 +631,22 @@ class ShiftAttendanceController:
                 if saved is not None
                 else NoteStyle()
             ),
+            export_kind="detail",
+            time_pairs=(saved.time_pairs if saved is not None else 4),
         )
+
+        def _selected_time_pairs() -> int:
+            try:
+                return int(dialog.get_time_pairs())
+            except Exception:
+                return 4
+
+        def _pair_excludes(tp: int) -> set[str]:
+            if int(tp) == 2:
+                return {"Vào 2", "Ra 2", "Vào 3", "Ra 3"}
+            if int(tp) == 4:
+                return {"Vào 3", "Ra 3"}
+            return set()
 
         def _save_settings() -> tuple[bool, str]:
             vals = dialog.get_values()
@@ -585,7 +655,11 @@ class ShiftAttendanceController:
             cn_st = dialog.get_company_name_style()
             ca_st = dialog.get_company_address_style()
             cp_st = dialog.get_company_phone_style()
+            export_kind = "detail"
+            time_pairs = _selected_time_pairs()
             settings = ExportGridListSettings(
+                export_kind=export_kind,
+                time_pairs=time_pairs,
                 company_name=vals.get("company_name", ""),
                 company_address=vals.get("company_address", ""),
                 company_phone=vals.get("company_phone", ""),
@@ -610,19 +684,66 @@ class ShiftAttendanceController:
                 creator_italic=bool(creator_st.italic),
                 creator_underline=bool(creator_st.underline),
                 creator_align=str(creator_st.align or "left"),
-                # Preserve grid note when saving from Xuất chi tiết
-                note_text=(saved.note_text if saved else ""),
-                note_font_size=(saved.note_font_size if saved else 13),
-                note_bold=(saved.note_bold if saved else False),
-                note_italic=(saved.note_italic if saved else False),
-                note_underline=(saved.note_underline if saved else False),
-                note_align=(saved.note_align if saved else "left"),
-                detail_note_text=vals.get("note_text", ""),
-                detail_note_font_size=int(note_st.font_size),
-                detail_note_bold=bool(note_st.bold),
-                detail_note_italic=bool(note_st.italic),
-                detail_note_underline=bool(note_st.underline),
-                detail_note_align=str(note_st.align or "left"),
+                note_text=(
+                    vals.get("note_text", "")
+                    if export_kind == "grid"
+                    else (saved.note_text if saved else "")
+                ),
+                note_font_size=(
+                    int(note_st.font_size)
+                    if export_kind == "grid"
+                    else (int(saved.note_font_size) if saved else 13)
+                ),
+                note_bold=(
+                    bool(note_st.bold)
+                    if export_kind == "grid"
+                    else (bool(saved.note_bold) if saved else False)
+                ),
+                note_italic=(
+                    bool(note_st.italic)
+                    if export_kind == "grid"
+                    else (bool(saved.note_italic) if saved else False)
+                ),
+                note_underline=(
+                    bool(note_st.underline)
+                    if export_kind == "grid"
+                    else (bool(saved.note_underline) if saved else False)
+                ),
+                note_align=(
+                    str(note_st.align or "left")
+                    if export_kind == "grid"
+                    else (str(saved.note_align) if saved else "left")
+                ),
+                detail_note_text=(
+                    vals.get("note_text", "")
+                    if export_kind == "detail"
+                    else (str(saved.detail_note_text or "") if saved else "")
+                ),
+                detail_note_font_size=(
+                    int(note_st.font_size)
+                    if export_kind == "detail"
+                    else (int(saved.detail_note_font_size) if saved else 13)
+                ),
+                detail_note_bold=(
+                    bool(note_st.bold)
+                    if export_kind == "detail"
+                    else (bool(saved.detail_note_bold) if saved else False)
+                ),
+                detail_note_italic=(
+                    bool(note_st.italic)
+                    if export_kind == "detail"
+                    else (bool(saved.detail_note_italic) if saved else False)
+                ),
+                detail_note_underline=(
+                    bool(note_st.underline)
+                    if export_kind == "detail"
+                    else (bool(saved.detail_note_underline) if saved else False)
+                ),
+                detail_note_align=(
+                    str(note_st.align or "left")
+                    if export_kind == "detail"
+                    else (str(saved.detail_note_align) if saved else "left")
+                ),
             )
             ok, msg = export_service.save(settings, context="xuất chi tiết")
             dialog.set_status(msg, ok=ok)
@@ -665,14 +786,17 @@ class ShiftAttendanceController:
             from_file = ""
             to_file = ""
 
-        # Choose output file
-        if from_file and to_file:
-            default_name = f"Xuất Chi Tiết_{from_file}_{to_file}.xlsx"
-        else:
-            default_name = "Xuất Chi Tiết.xlsx"
+        time_pairs = _selected_time_pairs()
+        title = "Xuất chi tiết chấm công"
+        default_name = (
+            f"Xuất Chi Tiết_{from_file}_{to_file}.xlsx"
+            if from_file and to_file
+            else "Xuất Chi Tiết.xlsx"
+        )
+
         file_path, _ = QFileDialog.getSaveFileName(
             self._parent_window,
-            "Xuất chi tiết chấm công",
+            title,
             default_name,
             "Excel (*.xlsx)",
         )
@@ -685,6 +809,98 @@ class ShiftAttendanceController:
             phone=str(vals.get("company_phone", "") or "").strip(),
         )
 
+        # Auto-hide unnecessary in/out columns based on Arrange Schedule in_out_mode.
+        force_exclude_headers: set[str] | None = None
+        in_out_mode_by_employee_code: dict[str, str | None] = {}
+        try:
+            t = self._content2.table
+            row_count = int(t.rowCount())
+            rows_to_export = checked_rows if checked_rows else list(range(row_count))
+
+            def _find_col(header_text: str) -> int | None:
+                target = str(header_text or "").strip().lower()
+                for c in range(int(t.columnCount())):
+                    hi = t.horizontalHeaderItem(int(c))
+                    ht = "" if hi is None else str(hi.text() or "")
+                    if ht.strip().lower() == target:
+                        return int(c)
+                return None
+
+            col_schedule = _find_col("Lịch làm việc")
+            col_emp = _find_col("Mã nv")
+            col_in2 = _find_col("Vào 2")
+            col_out2 = _find_col("Ra 2")
+            col_in3 = _find_col("Vào 3")
+            col_out3 = _find_col("Ra 3")
+
+            schedule_names: list[str] = []
+            max_pair_used = 1
+            emp_to_schedules: dict[str, set[str]] = {}
+
+            for r in rows_to_export:
+                rr = int(r)
+                if rr < 0 or rr >= row_count:
+                    continue
+
+                if col_schedule is not None:
+                    it = t.item(rr, int(col_schedule))
+                    s = "" if it is None else str(it.text() or "").strip()
+                    if s:
+                        schedule_names.append(s)
+                        if col_emp is not None:
+                            it2 = t.item(rr, int(col_emp))
+                            emp_code = (
+                                "" if it2 is None else str(it2.text() or "").strip()
+                            )
+                            if emp_code:
+                                emp_to_schedules.setdefault(emp_code, set()).add(s)
+
+                def _has_text(col: int | None) -> bool:
+                    if col is None:
+                        return False
+                    it2 = t.item(rr, int(col))
+                    return bool(str("" if it2 is None else it2.text() or "").strip())
+
+                if _has_text(col_in3) or _has_text(col_out3):
+                    max_pair_used = max(max_pair_used, 3)
+                if _has_text(col_in2) or _has_text(col_out2):
+                    max_pair_used = max(max_pair_used, 2)
+
+            schedule_names = list(dict.fromkeys([s for s in schedule_names if s]))
+
+            if schedule_names:
+                mode_map = ArrangeScheduleService().get_in_out_mode_map(schedule_names)
+                modes = [mode_map.get(n) for n in schedule_names]
+
+                has_unknown = any(m is None for m in modes)
+                has_device = any(m == "device" for m in modes)
+                has_auto = any(m == "auto" for m in modes)
+
+                # IMPORTANT: Export columns are controlled by the user's 2/4/6 selection.
+                # Do not force-hide pairs based on schedule mode here.
+
+                # Per-employee mode (used by details template to decide whether to render Vào2/Ra2 lines)
+                for emp_code, ss in (emp_to_schedules or {}).items():
+                    emp_modes = [mode_map.get(x) for x in (ss or set())]
+                    if any(m is None for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "device"
+                    elif any(m == "device" for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "device"
+                    elif any(m == "auto" for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "auto"
+                    elif any(m == "first_last" for m in emp_modes):
+                        in_out_mode_by_employee_code[emp_code] = "first_last"
+                    else:
+                        in_out_mode_by_employee_code[emp_code] = None
+        except Exception:
+            force_exclude_headers = None
+            in_out_mode_by_employee_code = {}
+
+        # Apply user's selected 2/4/6 time-pair cap.
+        cap_ex = _pair_excludes(time_pairs)
+        if cap_ex:
+            force_exclude_headers = set(force_exclude_headers or set()) | cap_ex
+
         ok, msg = export_shift_attendance_details_xlsx(
             file_path=file_path,
             company=company,
@@ -692,6 +908,8 @@ class ShiftAttendanceController:
             to_date_text=to_txt,
             table=self._content2.table,
             row_indexes=(checked_rows if checked_rows else None),
+            force_exclude_headers=force_exclude_headers,
+            in_out_mode_by_employee_code=in_out_mode_by_employee_code,
             company_name_style={
                 "font_size": int(cn_style.font_size),
                 "bold": bool(cn_style.bold),
@@ -733,7 +951,7 @@ class ShiftAttendanceController:
 
         MessageDialog.info(
             self._parent_window,
-            "Xuất chi tiết chấm công",
+            title,
             msg,
         )
 

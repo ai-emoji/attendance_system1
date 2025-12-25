@@ -51,7 +51,9 @@
       "hours": true,
       "out_1": true,
       "in_1": true,
-      "schedule": true
+      "schedule": true,
+      "out_3": true,
+      "in_3": true
     },
     "font_size": 12,
     "font_weight": "normal",

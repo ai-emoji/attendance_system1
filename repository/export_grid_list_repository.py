@@ -22,6 +22,8 @@ class ExportGridListRepository:
         ddl = (
             "CREATE TABLE IF NOT EXISTS export_grid_list_settings ("
             "id INT PRIMARY KEY,"
+            "export_kind VARCHAR(20) NOT NULL DEFAULT 'grid',"
+            "time_pairs INT NOT NULL DEFAULT 4,"
             "company_name VARCHAR(255) NULL,"
             "company_address VARCHAR(255) NULL,"
             "company_phone VARCHAR(50) NULL,"
@@ -65,6 +67,8 @@ class ExportGridListRepository:
             Database.execute_update(ddl)
             # Best-effort migration for older tables (ignore if already exists)
             alters = [
+                "ALTER TABLE export_grid_list_settings ADD COLUMN export_kind VARCHAR(20) NOT NULL DEFAULT 'grid'",
+                "ALTER TABLE export_grid_list_settings ADD COLUMN time_pairs INT NOT NULL DEFAULT 4",
                 "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_font_size INT NULL",
                 "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_bold TINYINT(1) NOT NULL DEFAULT 0",
                 "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_italic TINYINT(1) NOT NULL DEFAULT 0",
@@ -110,7 +114,7 @@ class ExportGridListRepository:
     def get_settings(self) -> dict[str, Any] | None:
         self.ensure_table()
         q = (
-            "SELECT company_name, company_address, company_phone, "
+            "SELECT export_kind, time_pairs, company_name, company_address, company_phone, "
             "company_name_font_size, company_name_bold, company_name_italic, company_name_underline, company_name_align, "
             "company_address_font_size, company_address_bold, company_address_italic, company_address_underline, company_address_align, "
             "company_phone_font_size, company_phone_bold, company_phone_italic, company_phone_underline, company_phone_align, "
@@ -130,6 +134,8 @@ class ExportGridListRepository:
     def upsert_settings(
         self,
         *,
+        export_kind: str,
+        time_pairs: int,
         company_name: str | None,
         company_address: str | None,
         company_phone: str | None,
@@ -170,7 +176,7 @@ class ExportGridListRepository:
         self.ensure_table()
         q = (
             "INSERT INTO export_grid_list_settings ("
-            "id, company_name, company_address, company_phone, "
+            "id, export_kind, time_pairs, company_name, company_address, company_phone, "
             "company_name_font_size, company_name_bold, company_name_italic, company_name_underline, company_name_align, "
             "company_address_font_size, company_address_bold, company_address_italic, company_address_underline, company_address_align, "
             "company_phone_font_size, company_phone_bold, company_phone_italic, company_phone_underline, company_phone_align, "
@@ -179,7 +185,7 @@ class ExportGridListRepository:
             "note_text, note_font_size, note_bold, note_italic, note_underline, note_align, "
             "detail_note_text, detail_note_font_size, detail_note_bold, detail_note_italic, detail_note_underline, detail_note_align"
             ") VALUES ("
-            "%s,%s,%s,%s,"
+            "%s,%s,%s,%s,%s,%s,"
             "%s,%s,%s,%s,%s,"
             "%s,%s,%s,%s,%s,"
             "%s,%s,%s,%s,%s,"
@@ -189,6 +195,8 @@ class ExportGridListRepository:
             "%s,%s,%s,%s,%s,%s"
             ") "
             "ON DUPLICATE KEY UPDATE "
+            "export_kind=VALUES(export_kind),"
+            "time_pairs=VALUES(time_pairs),"
             "company_name=VALUES(company_name),"
             "company_address=VALUES(company_address),"
             "company_phone=VALUES(company_phone),"
@@ -230,6 +238,8 @@ class ExportGridListRepository:
             q,
             (
                 self._ID,
+                str(export_kind or "grid"),
+                int(time_pairs or 4),
                 company_name,
                 company_address,
                 company_phone,

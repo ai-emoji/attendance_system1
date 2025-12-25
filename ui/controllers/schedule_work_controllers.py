@@ -54,6 +54,12 @@ class ScheduleWorkController:
         except Exception:
             pass
 
+        # Auto-apply filter when clicking the department/title tree
+        try:
+            self._view.content.left.selection_changed.connect(self.on_search)
+        except Exception:
+            pass
+
         try:
             self._view.content.right.btn_apply.clicked.connect(self.on_apply)
         except Exception:

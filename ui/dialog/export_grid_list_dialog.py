@@ -18,6 +18,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -284,7 +285,10 @@ class ExportGridListDialog(QDialog):
         return
 
     def _init_ui(self) -> None:
-        self.setWindowTitle("Xuất lưới chấm công")
+        if "chi tiết" in str(self._export_button_text or "").lower():
+            self.setWindowTitle("Xuất chi tiết chấm công")
+        else:
+            self.setWindowTitle("Xuất lưới chấm công")
         self.setModal(True)
         self.setMinimumWidth(620)
 
@@ -511,6 +515,37 @@ class ExportGridListDialog(QDialog):
         btns.setSpacing(10)
         btns.addStretch(1)
 
+        # Export dropdown (type + time pairs)
+        self.cbo_export = QComboBox(self)
+        self.cbo_export.setFixedHeight(36)
+        self.cbo_export.setMinimumWidth(180)
+        self.cbo_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cbo_export.setStyleSheet(
+            "\n".join(
+                [
+                    f"QComboBox {{ background: {INPUT_COLOR_BG}; border: 1px solid {INPUT_COLOR_BORDER}; padding: 0 8px; border-radius: 6px; }}",
+                    f"QComboBox:focus {{ border: 1px solid {INPUT_COLOR_BORDER_FOCUS}; }}",
+                    f"QComboBox QAbstractItemView {{ background: {INPUT_COLOR_BG}; selection-background-color: {INPUT_COLOR_BG}; selection-color: {COLOR_TEXT_PRIMARY}; outline: 0px; }}",
+                ]
+            )
+        )
+
+        # Show only the export kind that matches the button the user clicked.
+        preferred_kind = (
+            "detail" if "chi tiết" in self._export_button_text.lower() else "grid"
+        )
+        options: list[tuple[str, tuple[str, int]]] = []
+        if preferred_kind == "detail":
+            # Detail export supports choosing time-pair cap (2/4/6)
+            for tp in (2, 4, 6):
+                options.append((f"Xuất chi tiết - {tp}", (preferred_kind, tp)))
+        else:
+            # Grid export: remove the 2/4/6 variants (always a single choice)
+            options.append(("Xuất lưới", (preferred_kind, 4)))
+
+        for text, data in options:
+            self.cbo_export.addItem(text, data)
+
         self.btn_save = QPushButton("Lưu", self)
         self.btn_save.setFont(font_button)
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -544,6 +579,7 @@ class ExportGridListDialog(QDialog):
         )
 
         btns.addWidget(self.btn_save)
+        btns.addWidget(self.cbo_export)
         btns.addWidget(self.btn_export)
 
         root.addWidget(form_widget)
@@ -573,6 +609,112 @@ class ExportGridListDialog(QDialog):
             "note_text": (self.input_note.toPlainText() or ""),
         }
 
+    def get_export_kind(self) -> str:
+        def _norm_choice(v) -> tuple[str, int]:
+            try:
+                if isinstance(v, (list, tuple)) and len(v) >= 2:
+                    k = str(v[0] or "grid").strip().lower()
+                    tp = int(v[1])
+                    return (k, tp)
+            except Exception:
+                pass
+            return ("grid", 4)
+
+        kind = "grid"
+        try:
+            data = self.cbo_export.currentData()
+            kind, _tp = _norm_choice(data)
+        except Exception:
+            kind = "grid"
+
+        # Fallback: parse from displayed text (more reliable across PySide variants)
+        if kind not in {"grid", "detail"}:
+            try:
+                txt = str(self.cbo_export.currentText() or "").strip().lower()
+                kind = "detail" if "chi tiết" in txt else "grid"
+            except Exception:
+                kind = "grid"
+
+        return kind if kind in {"grid", "detail"} else "grid"
+
+    def get_time_pairs(self) -> int:
+        def _norm_choice(v) -> tuple[str, int]:
+            try:
+                if isinstance(v, (list, tuple)) and len(v) >= 2:
+                    k = str(v[0] or "grid").strip().lower()
+                    tp = int(v[1])
+                    return (k, tp)
+            except Exception:
+                pass
+            return ("grid", 4)
+
+        v = 4
+        try:
+            data = self.cbo_export.currentData()
+            _kind, tp = _norm_choice(data)
+            v = int(tp)
+        except Exception:
+            v = 4
+
+        # Fallback: parse from displayed text like "Xuất chi tiết - 4"
+        if v not in {2, 4, 6}:
+            try:
+                txt = str(self.cbo_export.currentText() or "")
+                part = txt.split("-")[-1].strip()
+                v = int(part)
+            except Exception:
+                v = 4
+
+        return v if v in {2, 4, 6} else 4
+
+    def set_export_choice(self, *, export_kind: str, time_pairs: int) -> None:
+        kind = str(export_kind or "grid").strip().lower()
+        if kind not in {"grid", "detail"}:
+            kind = "grid"
+        try:
+            tp = int(time_pairs)
+        except Exception:
+            tp = 4
+        if tp not in {2, 4, 6}:
+            tp = 4
+
+        target = (kind, tp)
+        try:
+            for i in range(int(self.cbo_export.count())):
+                item = self.cbo_export.itemData(i)
+                if item == target:
+                    self.cbo_export.setCurrentIndex(i)
+                    break
+                try:
+                    if isinstance(item, (list, tuple)) and tuple(item) == target:
+                        self.cbo_export.setCurrentIndex(i)
+                        break
+                except Exception:
+                    pass
+                # If grid has only one choice, always select it.
+                if kind == "grid":
+                    try:
+                        t = str(self.cbo_export.itemText(i) or "").strip().lower()
+                        if t == "xuất lưới":
+                            self.cbo_export.setCurrentIndex(i)
+                            break
+                    except Exception:
+                        pass
+                # Last resort: match by displayed text
+                try:
+                    t = str(self.cbo_export.itemText(i) or "").strip().lower()
+                    if t.endswith(f"- {tp}"):
+                        if kind == "detail" and "chi tiết" in t:
+                            self.cbo_export.setCurrentIndex(i)
+                            break
+                        if kind == "grid" and "chi tiết" not in t:
+                            self.cbo_export.setCurrentIndex(i)
+                            break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def get_note_style(self) -> NoteStyle:
         return self._field_styles.get("note") or NoteStyle()
 
@@ -601,6 +743,8 @@ class ExportGridListDialog(QDialog):
         company_phone_style: NoteStyle | None = None,
         creator_style: NoteStyle | None = None,
         note_style: NoteStyle | None = None,
+        export_kind: str | None = None,
+        time_pairs: int | None = None,
     ) -> None:
         self.input_company_name.setText(company_name or "")
         self.input_company_address.setText(company_address or "")
@@ -624,3 +768,10 @@ class ExportGridListDialog(QDialog):
         self._load_toolbar_from_style(
             self._field_styles.get(self._active_field) or NoteStyle()
         )
+
+        # Export dropdown defaults
+        if export_kind is not None or time_pairs is not None:
+            self.set_export_choice(
+                export_kind=str(export_kind or self.get_export_kind()),
+                time_pairs=int(time_pairs or self.get_time_pairs()),
+            )

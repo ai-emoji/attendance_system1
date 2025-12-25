@@ -20,6 +20,8 @@ Ghi chú:
 
 from __future__ import annotations
 
+import datetime as _dt
+
 from PySide6.QtCore import QDate, QLocale, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon
 from PySide6.QtWidgets import (
@@ -87,6 +89,61 @@ from ui.controllers.import_shift_attendance_controllers import (
 
 
 _BTN_HOVER_BG = COLOR_BUTTON_PRIMARY_HOVER
+
+
+def _fmt_date_ddmmyyyy(value: object | None) -> str:
+    """Format a date-like value to dd/MM/yyyy for UI display."""
+
+    if value is None:
+        return ""
+
+    try:
+        if isinstance(value, QDate):
+            return str(value.toString("dd/MM/yyyy") or "")
+    except Exception:
+        pass
+
+    try:
+        if isinstance(value, (_dt.datetime, _dt.date)):
+            return str(value.strftime("%d/%m/%Y"))
+    except Exception:
+        pass
+
+    s = str(value or "").strip()
+    if not s:
+        return ""
+
+    # Already dd/MM/yyyy
+    try:
+        if (
+            len(s) >= 10
+            and s[2] == "/"
+            and s[5] == "/"
+            and s[:10].replace("/", "").isdigit()
+        ):
+            return s[:10]
+    except Exception:
+        pass
+
+    # Normalize: keep only date token, accept yyyy-mm-dd or dd-mm-yyyy
+    token = s.split(" ", 1)[0].strip().replace("/", "-")
+    try:
+        if len(token) == 10 and token[4] == "-" and token[7] == "-":
+            yy, mm, dd = token.split("-")
+            d = _dt.date(int(yy), int(mm), int(dd))
+            return d.strftime("%d/%m/%Y")
+    except Exception:
+        pass
+
+    try:
+        if len(token) == 10 and token[2] == "-" and token[5] == "-":
+            dd, mm, yy = token.split("-")
+            d = _dt.date(int(yy), int(mm), int(dd))
+            return d.strftime("%d/%m/%Y")
+    except Exception:
+        pass
+
+    return s
 
 
 def _apply_check_item_style(item, *, checked: bool) -> None:
@@ -698,6 +755,16 @@ class MainContent1(QWidget):
                 if item is None:
                     continue
 
+                # Ensure date columns show dd/MM/yyyy
+                if str(key) == "start_date":
+                    try:
+                        raw = item.data(Qt.ItemDataRole.UserRole)
+                        if raw is None:
+                            raw = item.text()
+                        item.setText(_fmt_date_ddmmyyyy(raw))
+                    except Exception:
+                        pass
+
                 if str(key) == "__check":
                     _apply_check_item_style(
                         item, checked=(str(item.text() or "").strip() == "✅")
@@ -1083,6 +1150,16 @@ class MainContent2(QWidget):
                 item = self.table.item(int(row), int(col))
                 if item is None:
                     continue
+
+                # Ensure date column shows dd/MM/yyyy
+                if str(key) == "date":
+                    try:
+                        raw = item.data(Qt.ItemDataRole.UserRole)
+                        if raw is None:
+                            raw = item.text()
+                        item.setText(_fmt_date_ddmmyyyy(raw))
+                    except Exception:
+                        pass
 
                 if str(key) == "__check":
                     _apply_check_item_style(

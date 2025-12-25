@@ -14,8 +14,9 @@ Yêu cầu (UI-only, chưa có nghiệp vụ):
 from __future__ import annotations
 
 from collections import defaultdict
+import datetime as _dt
 
-from PySide6.QtCore import QDate, QEvent, QLocale, QSize, Qt, Signal
+from PySide6.QtCore import QDate, QEvent, QLocale, QSize, Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -379,7 +380,11 @@ class TitleBar2(QWidget):
         self.inp_search.setPlaceholderText("Nhập mã NV hoặc tên nhân viên...")
         self.inp_search.setMinimumWidth(260)
 
-        self.btn_search = _mk_btn_primary("Tìm kiếm", None, height=32)
+        # Auto-search (debounced) instead of a dedicated Search button.
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+
         self.btn_refresh = _mk_btn_outline("Làm mới", ICON_REFRESH, height=32)
         self.btn_delete = _mk_btn_outline("Xóa lịch NV", ICON_DELETE, height=32)
         self.btn_settings = _mk_btn_outline("Cài đặt", None, height=32)
@@ -401,7 +406,6 @@ class TitleBar2(QWidget):
         root.addStretch(1)
         root.addWidget(self.cbo_search_by)
         root.addWidget(self.inp_search)
-        root.addWidget(self.btn_search)
         root.addWidget(self.btn_refresh)
         root.addWidget(self.btn_delete)
         root.addWidget(self.btn_settings)
@@ -409,10 +413,36 @@ class TitleBar2(QWidget):
         root.addWidget(self.label_total)
 
         try:
-            self.btn_search.clicked.connect(self.search_clicked.emit)
             self.btn_refresh.clicked.connect(self.refresh_clicked.emit)
             self.btn_delete.clicked.connect(self.delete_clicked.emit)
             self.btn_settings.clicked.connect(self.settings_clicked.emit)
+        except Exception:
+            pass
+
+        # Trigger search automatically when user changes inputs.
+        try:
+            self._search_timer.timeout.connect(self.search_clicked.emit)
+        except Exception:
+            pass
+
+        def _debounced_search() -> None:
+            try:
+                self._search_timer.start()
+            except Exception:
+                try:
+                    self.search_clicked.emit()
+                except Exception:
+                    pass
+
+        try:
+            self.inp_search.textChanged.connect(lambda _="": _debounced_search())
+            self.inp_search.returnPressed.connect(self.search_clicked.emit)
+        except Exception:
+            pass
+        try:
+            self.cbo_search_by.currentIndexChanged.connect(
+                lambda _=0: _debounced_search()
+            )
         except Exception:
             pass
 
@@ -421,6 +451,8 @@ class TitleBar2(QWidget):
 
 
 class MainLeft(QWidget):
+    selection_changed = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -477,6 +509,12 @@ class MainLeft(QWidget):
         )
 
         root.addWidget(self.tree, 1)
+
+        # Apply filter immediately when user selects a department/title node.
+        try:
+            self.tree.itemSelectionChanged.connect(self.selection_changed.emit)
+        except Exception:
+            pass
 
     def set_departments(
         self,
@@ -728,8 +766,12 @@ class MainRight(QWidget):
             hh.setStretchLastSection(False)
             hh.setFixedHeight(ROW_HEIGHT)
             hh.setMinimumSectionSize(60)
-            # We will manage column widths ourselves to always fit the viewport.
-            hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            # Allow user to resize columns, but keep total width within the table viewport.
+            hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            try:
+                hh.setSectionResizeMode(self.COL_CHECK, QHeaderView.ResizeMode.Fixed)
+            except Exception:
+                pass
         except Exception:
             hh = None
 
@@ -796,6 +838,13 @@ class MainRight(QWidget):
         self.table.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+
+        self._is_adjusting_columns = False
+        try:
+            if hh is not None:
+                hh.sectionResized.connect(self._on_header_section_resized)
+        except Exception:
+            pass
 
         # QFrame bọc ngoài để viền không bao giờ mất
         self.table_frame = QFrame(self)
@@ -959,13 +1008,8 @@ class MainRight(QWidget):
         if not flex_cols:
             return
 
-        bases = [
-            max(
-                1,
-                int(self._base_widths.get(int(c), int(table.columnWidth(int(c))) or 1)),
-            )
-            for c in flex_cols
-        ]
+        # Use current widths as bases so user-resized proportions are preserved.
+        bases = [max(1, int(table.columnWidth(int(c))) or 1) for c in flex_cols]
         base_sum = int(sum(bases))
         if base_sum <= 0:
             base_sum = len(flex_cols)
@@ -1013,6 +1057,99 @@ class MainRight(QWidget):
             table.setColumnWidth(
                 int(c), int(widths.get(int(c), int(table.columnWidth(int(c)))))
             )
+
+    def _on_header_section_resized(
+        self, logical_index: int, old_size: int, new_size: int
+    ) -> None:
+        """Keep total visible column width within viewport when user drags a header."""
+
+        if self._is_adjusting_columns:
+            return
+
+        table = self.table
+        if table is None:
+            return
+
+        try:
+            li = int(logical_index)
+        except Exception:
+            return
+
+        if bool(table.isColumnHidden(li)):
+            return
+
+        # Compute target total width inside the viewport.
+        viewport_w = int(table.viewport().width())
+        if viewport_w <= 0:
+            return
+
+        try:
+            sbw = (
+                int(table.verticalScrollBar().sizeHint().width())
+                if table.verticalScrollBar().isVisible()
+                else 0
+            )
+        except Exception:
+            sbw = 0
+
+        target_total = max(0, int(viewport_w - sbw - 2))
+
+        visible_cols = [
+            c
+            for c in range(int(table.columnCount()))
+            if not bool(table.isColumnHidden(int(c)))
+        ]
+        if not visible_cols:
+            return
+
+        try:
+            current_total = int(
+                sum(int(table.columnWidth(int(c))) for c in visible_cols)
+            )
+        except Exception:
+            return
+
+        delta = int(current_total - target_total)
+        if delta == 0:
+            return
+
+        # Pick a companion column (prefer last visible, not the resized one, not fixed).
+        companion: int | None = None
+        for c in reversed(list(visible_cols)):
+            cc = int(c)
+            if cc == li:
+                continue
+            if cc in self._fixed_cols:
+                continue
+            companion = cc
+            break
+        if companion is None:
+            return
+
+        try:
+            self._is_adjusting_columns = True
+
+            cur_comp = int(table.columnWidth(int(companion)))
+            min_comp = int(self._min_widths.get(int(companion), 0) or 0)
+
+            if delta > 0:
+                # Too wide -> shrink companion first.
+                shrinkable = int(cur_comp - min_comp)
+                take = int(min(delta, max(0, shrinkable)))
+                if take > 0:
+                    table.setColumnWidth(int(companion), int(cur_comp - take))
+                    delta -= int(take)
+
+                if delta > 0:
+                    # Still too wide -> clamp the resized column back.
+                    min_li = int(self._min_widths.get(int(li), 0) or 0)
+                    allowed = max(min_li, int(new_size) - int(delta))
+                    table.setColumnWidth(int(li), int(allowed))
+            else:
+                # Have spare space -> give it to companion.
+                table.setColumnWidth(int(companion), int(cur_comp + (-delta)))
+        finally:
+            self._is_adjusting_columns = False
 
     def set_schedules(self, items: list[tuple[int, str]]) -> None:
         self.cbo_schedule.clear()
@@ -1356,7 +1493,7 @@ class TempScheduleContent(QWidget):
             # We will manage column widths ourselves to always fit the viewport.
             hh.setStretchLastSection(False)
             hh.setMinimumSectionSize(60)
-            hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         except Exception:
             pass
 
@@ -1477,6 +1614,13 @@ class TempScheduleContent(QWidget):
         except Exception:
             pass
 
+        self._is_adjusting_columns = False
+        try:
+            hh = self.table.horizontalHeader()
+            hh.sectionResized.connect(self._on_header_section_resized)
+        except Exception:
+            pass
+
         try:
             self._fit_columns_to_viewport()
         except Exception:
@@ -1558,13 +1702,8 @@ class TempScheduleContent(QWidget):
         if not flex_cols:
             return
 
-        bases = [
-            max(
-                1,
-                int(self._base_widths.get(int(c), int(table.columnWidth(int(c))) or 1)),
-            )
-            for c in flex_cols
-        ]
+        # Use current widths as bases so user-resized proportions are preserved.
+        bases = [max(1, int(table.columnWidth(int(c))) or 1) for c in flex_cols]
         base_sum = int(sum(bases))
         if base_sum <= 0:
             base_sum = len(flex_cols)
@@ -1611,6 +1750,117 @@ class TempScheduleContent(QWidget):
                 int(c), int(widths.get(int(c), int(table.columnWidth(int(c)))))
             )
 
+    def _on_header_section_resized(
+        self, logical_index: int, old_size: int, new_size: int
+    ) -> None:
+        if self._is_adjusting_columns:
+            return
+
+        table = self.table
+        if table is None:
+            return
+
+        try:
+            li = int(logical_index)
+        except Exception:
+            return
+        if bool(table.isColumnHidden(li)):
+            return
+
+        viewport_w = int(table.viewport().width())
+        if viewport_w <= 0:
+            return
+
+        try:
+            sbw = (
+                int(table.verticalScrollBar().sizeHint().width())
+                if table.verticalScrollBar().isVisible()
+                else 0
+            )
+        except Exception:
+            sbw = 0
+
+        target_total = max(0, int(viewport_w - sbw - 2))
+        visible_cols = [
+            c
+            for c in range(int(table.columnCount()))
+            if not bool(table.isColumnHidden(int(c)))
+        ]
+        if not visible_cols:
+            return
+
+        try:
+            current_total = int(
+                sum(int(table.columnWidth(int(c))) for c in visible_cols)
+            )
+        except Exception:
+            return
+
+        delta = int(current_total - target_total)
+        if delta == 0:
+            return
+
+        companion: int | None = None
+        for c in reversed(list(visible_cols)):
+            cc = int(c)
+            if cc == li:
+                continue
+            companion = cc
+            break
+        if companion is None:
+            return
+
+        try:
+            self._is_adjusting_columns = True
+
+            cur_comp = int(table.columnWidth(int(companion)))
+            min_comp = int(self._min_widths.get(int(companion), 0) or 0)
+
+            if delta > 0:
+                shrinkable = int(cur_comp - min_comp)
+                take = int(min(delta, max(0, shrinkable)))
+                if take > 0:
+                    table.setColumnWidth(int(companion), int(cur_comp - take))
+                    delta -= int(take)
+
+                if delta > 0:
+                    min_li = int(self._min_widths.get(int(li), 0) or 0)
+                    allowed = max(min_li, int(new_size) - int(delta))
+                    table.setColumnWidth(int(li), int(allowed))
+            else:
+                table.setColumnWidth(int(companion), int(cur_comp + (-delta)))
+        finally:
+            self._is_adjusting_columns = False
+
+    def _fmt_date(self, v) -> str:
+        if v is None:
+            return ""
+        try:
+            if isinstance(v, QDate):
+                return str(v.toString("dd/MM/yyyy") or "")
+        except Exception:
+            pass
+        try:
+            if isinstance(v, (_dt.datetime, _dt.date)):
+                return str(v.strftime("%d/%m/%Y"))
+        except Exception:
+            pass
+
+        s = str(v or "").strip()
+        if not s:
+            return ""
+
+        raw = s.split(" ", 1)[0].strip().replace("/", "-")
+        try:
+            if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+                yy, mm, dd = raw.split("-")
+                dt = _dt.date(int(yy), int(mm), int(dd))
+                return dt.strftime("%d/%m/%Y")
+        except Exception:
+            pass
+
+        return s
+
     def clear_rows(self) -> None:
         self.table.setRowCount(0)
 
@@ -1654,11 +1904,11 @@ class TempScheduleContent(QWidget):
             it_name.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             self.table.setItem(r, self.COL_FULL_NAME, it_name)
 
-            it_from = QTableWidgetItem(str(from_date or ""))
+            it_from = QTableWidgetItem(self._fmt_date(from_date))
             it_from.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             self.table.setItem(r, self.COL_FROM_DATE, it_from)
 
-            it_to = QTableWidgetItem(str(to_date or ""))
+            it_to = QTableWidgetItem(self._fmt_date(to_date))
             it_to.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             self.table.setItem(r, self.COL_TO_DATE, it_to)
 
