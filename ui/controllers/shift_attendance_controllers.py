@@ -27,6 +27,7 @@ from services.export_grid_list_services import (
 )
 from services.attendance_symbol_services import AttendanceSymbolService
 from services.shift_attendance_services import ShiftAttendanceService
+from core.attendance_symbol_bus import attendance_symbol_bus
 from ui.controllers.shift_attendance_maincontent2_controllers import (
     ShiftAttendanceMainContent2Controller,
 )
@@ -62,6 +63,12 @@ class ShiftAttendanceController:
         except Exception:
             pass
         self._content1.search_changed.connect(self.refresh)
+
+        # Live-refresh audit grid when attendance_symbols are updated.
+        try:
+            attendance_symbol_bus.changed.connect(self._on_attendance_symbols_changed)
+        except Exception:
+            pass
         if self._content2 is not None:
             self._content1.view_clicked.connect(self.on_view_clicked)
             try:
@@ -87,6 +94,31 @@ class ShiftAttendanceController:
                 department_id=None,
                 title_id=None,
             )
+
+    def _on_attendance_symbols_changed(self) -> None:
+        # Only reload audit table; do not reset filters or main employee list.
+        if self._content2 is None:
+            return
+
+        if str(self._audit_mode or "").strip() == "selected":
+            try:
+                checked_ids, checked_codes = self._content1.get_checked_employee_keys()
+            except Exception:
+                checked_ids, checked_codes = ([], [])
+            self._load_audit_for_current_range(
+                employee_ids=checked_ids or None,
+                attendance_codes=checked_codes or None,
+                department_id=None,
+                title_id=None,
+            )
+            return
+
+        self._load_audit_for_current_range(
+            employee_ids=None,
+            attendance_codes=None,
+            department_id=self._selected_department_id(),
+            title_id=self._selected_title_id(),
+        )
 
     def on_export_grid_clicked(self) -> None:
         if self._content2 is None:
@@ -1297,34 +1329,34 @@ class ShiftAttendanceController:
         work_symbol = "X"  # C03
         late_symbol = "Tr"  # C01
         early_symbol = "Sm"  # C02
-        absent_symbol = "V"  # C07
         holiday_symbol = "Le"  # C10
         try:
             sym = AttendanceSymbolService().list_rows_by_code()
-            overtime_symbol = (
-                str((sym.get("C04") or {}).get("symbol") or "+").strip() or "+"
-            )
-            work_symbol = (
-                str((sym.get("C03") or {}).get("symbol") or "X").strip() or "X"
-            )
-            late_symbol = (
-                str((sym.get("C01") or {}).get("symbol") or "Tr").strip() or "Tr"
-            )
-            early_symbol = (
-                str((sym.get("C02") or {}).get("symbol") or "Sm").strip() or "Sm"
-            )
-            absent_symbol = (
-                str((sym.get("C07") or {}).get("symbol") or "V").strip() or "V"
-            )
-            holiday_symbol = (
-                str((sym.get("C10") or {}).get("symbol") or "Le").strip() or "Le"
-            )
+
+            def _sym(code: str, default: str) -> str:
+                row_data = sym.get(code)
+                if row_data is not None:
+                    try:
+                        if int(row_data.get("is_visible") or 0) != 1:
+                            return ""
+                    except Exception:
+                        return ""
+                    return (
+                        str(row_data.get("symbol") or "").strip()
+                        or str(default).strip()
+                    )
+                return str(default).strip()
+
+            overtime_symbol = _sym("C04", "+")
+            work_symbol = _sym("C03", "X")
+            late_symbol = _sym("C01", "Tr")
+            early_symbol = _sym("C02", "Sm")
+            holiday_symbol = _sym("C10", "Le")
         except Exception:
             overtime_symbol = "+"
             work_symbol = "X"
             late_symbol = "Tr"
             early_symbol = "Sm"
-            absent_symbol = "V"
             holiday_symbol = "Le"
 
         table.setRowCount(len(rows))
@@ -1354,46 +1386,6 @@ class ShiftAttendanceController:
                             txt = self._content2._format_time_value(raw)  # type: ignore[attr-defined]
                         except Exception:
                             txt = raw
-
-                        # If there are NO punches, show markers in the first in-time column
-                        # so they remain visible even when the `leave` (KH) column is hidden.
-                        # - Holiday: show C10 symbol
-                        # - No-punch (không chấm công): show C07 symbol
-                        if key == "in_1" and (str(txt or "").strip() == ""):
-                            try:
-                                leave_txt = str(r.get("leave") or "").strip()
-                            except Exception:
-                                leave_txt = ""
-
-                            # Only when there are truly no time values at all.
-                            has_any_time = False
-                            for k2 in (
-                                "in_1",
-                                "out_1",
-                                "in_2",
-                                "out_2",
-                                "in_3",
-                                "out_3",
-                            ):
-                                vv = r.get(k2)
-                                if vv is None:
-                                    continue
-                                if str(vv).strip() != "":
-                                    has_any_time = True
-                                    break
-
-                            if not has_any_time:
-                                # Holiday precedence
-                                if leave_txt == holiday_symbol:
-                                    txt = holiday_symbol
-                                else:
-                                    # If it's explicitly absent (C07) OR empty leave, still show C07 in Vào 1.
-                                    # This matches the requirement: "nếu không chấm công tích V".
-                                    if (leave_txt == absent_symbol) or (
-                                        leave_txt == ""
-                                    ):
-                                        txt = absent_symbol
-
                         item = QTableWidgetItem(str(txt))
                         try:
                             item.setData(Qt.ItemDataRole.UserRole, raw)

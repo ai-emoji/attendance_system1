@@ -42,6 +42,7 @@ from core.resource import (
     UI_FONT,
 )
 from services.attendance_symbol_services import AttendanceSymbolService
+from core.attendance_symbol_bus import attendance_symbol_bus
 
 
 class AttendanceSymbolDialog(QDialog):
@@ -445,3 +446,8 @@ class AttendanceSymbolDialog(QDialog):
         rows = self._collect_rows()
         ok, msg = self._service.save_rows(rows)
         self.set_status(msg, ok=ok)
+        if ok:
+            try:
+                attendance_symbol_bus.changed.emit()
+            except Exception:
+                pass

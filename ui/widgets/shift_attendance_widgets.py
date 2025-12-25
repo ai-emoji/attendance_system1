@@ -1016,8 +1016,12 @@ class MainContent2(QWidget):
         if not s:
             return ""
 
+        # Non-time labels (e.g. 'Nghỉ Lễ', 'OFF', 'V') should be displayed as-is.
+        # Only attempt datetime/time normalization when the value looks like it contains a time.
+        looks_like_time = ":" in s
+
         # If datetime-like, keep last token (HH:MM:SS)
-        if " " in s:
+        if looks_like_time and " " in s:
             s = s.split()[-1].strip()
 
         # Defensive: remove trailing colon

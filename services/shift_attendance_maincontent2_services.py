@@ -5,7 +5,7 @@ Logic xử lý dữ liệu cho Shift Attendance - MainContent2.
 Mục tiêu (theo yêu cầu):
 - Kiểm tra giờ công (hours/work) và điền vào bảng khi DB chưa có.
 - Đọc cấu trúc attendance_symbols (C01..C10) và dùng ký hiệu KV/KR
-  (mặc định: C06=KV, C05=KR) để điền vào các ô thiếu giờ vào/ra.
+    (mặc định: C06=KV, C05=KR) để điền vào các ô thiếu giờ vào/ra.
 
 Lưu ý:
 - File này chỉ xử lý format/enrich dữ liệu để HIỂN THỊ; không ghi DB.
@@ -165,21 +165,39 @@ def _shift_effective_minutes(shift_row: dict[str, Any]) -> int | None:
     if not shift_row:
         return None
 
+    lm = _lunch_minutes(shift_row.get("lunch_start"), shift_row.get("lunch_end"))
+    base = _minutes_between(shift_row.get("time_in"), shift_row.get("time_out"))
+    net_from_times: int | None = None
+    if base is not None:
+        net_from_times = int(base) - int(lm)
+        if net_from_times <= 0:
+            net_from_times = int(base)
+
     # If DB has total_minutes, prefer it.
+    # Support both interpretations:
+    # - total_minutes is gross (includes lunch)  => subtract lunch
+    # - total_minutes is net (already excludes)  => keep as-is
     try:
         tm = shift_row.get("total_minutes")
         if tm is not None and str(tm).strip() != "":
             v = int(float(tm))
             if v > 0:
-                return v
+                if base is not None and net_from_times is not None and int(lm) > 0:
+                    # Decide by closeness to planned durations.
+                    # Example: 08-17 (540), lunch 60 => net 480.
+                    # tm=540 => treat gross -> 480; tm=480 => treat net -> 480.
+                    dist_gross = abs(int(v) - int(base))
+                    dist_net = abs(int(v) - int(net_from_times))
+                    if dist_gross < dist_net:
+                        req = int(v) - int(lm)
+                        return int(req) if req > 0 else int(v)
+                return int(v)
     except Exception:
         pass
 
-    base = _minutes_between(shift_row.get("time_in"), shift_row.get("time_out"))
     if base is None:
         return None
 
-    lm = _lunch_minutes(shift_row.get("lunch_start"), shift_row.get("lunch_end"))
     eff = int(base) - int(lm)
     return eff if eff > 0 else int(base)
 
@@ -237,6 +255,29 @@ def _round_minutes_to_30_blocks(raw_minutes: int, tol: int) -> int:
     if t > 0 and (nxt - m) <= t:
         return int(nxt)
     return int(base)
+
+
+def _round_down_minutes_to_step(raw_minutes: int, step_minutes: int | None) -> int:
+    """Round down minutes to a fixed step (e.g. 10 => 0,10,20,...).
+
+    If step_minutes is None/0, returns raw_minutes.
+    """
+
+    try:
+        m = int(raw_minutes)
+    except Exception:
+        return 0
+    if m <= 0:
+        return 0
+
+    try:
+        step = int(step_minutes or 0)
+    except Exception:
+        step = 0
+    if step <= 0:
+        return int(m)
+
+    return int((m // step) * step)
 
 
 def _shift_time_in_seconds(shift_row: dict[str, Any]) -> int | None:
@@ -342,7 +383,22 @@ def _select_best_shift_rows(
     if actual_in is None or actual_out is None:
         return list(shift_rows)
 
-    # Prefer shifts whose in/out are within configured understanding windows.
+    def _score(srow: dict[str, Any]) -> int | None:
+        try:
+            planned_start = _parse_time_to_seconds(srow.get("time_in"))
+            planned_end_abs = _planned_end_abs_seconds_single(srow)
+        except Exception:
+            planned_start = None
+            planned_end_abs = None
+        if planned_start is None or planned_end_abs is None:
+            return None
+        actual_out_abs = _actual_out_abs_seconds(int(actual_out), int(planned_end_abs))
+        return abs(int(actual_in) - int(planned_start)) + abs(
+            int(actual_out_abs) - int(planned_end_abs)
+        )
+
+    # Prefer shifts whose in/out are within configured understanding windows,
+    # but treat this as a SOFT preference to avoid wrong matching for early/late punches.
     matching: list[dict[str, Any]] = []
     for srow in shift_rows:
         in_ws = _shift_window_seconds(srow, "in_window_start")
@@ -355,32 +411,38 @@ def _select_best_shift_rows(
         ):
             matching.append(srow)
 
-    candidates = matching if matching else list(shift_rows)
-
-    best_row: dict[str, Any] | None = None
-    best_score: int | None = None
-
-    for srow in candidates:
-        try:
-            planned_start = _parse_time_to_seconds(srow.get("time_in"))
-            planned_end_abs = _planned_end_abs_seconds_single(srow)
-        except Exception:
-            planned_start = None
-            planned_end_abs = None
-
-        if planned_start is None or planned_end_abs is None:
+    best_all: dict[str, Any] | None = None
+    best_all_score: int | None = None
+    for srow in shift_rows:
+        sc = _score(srow)
+        if sc is None:
             continue
+        if best_all_score is None or int(sc) < int(best_all_score):
+            best_all_score = int(sc)
+            best_all = srow
 
-        actual_out_abs = _actual_out_abs_seconds(int(actual_out), int(planned_end_abs))
-        score = abs(int(actual_in) - int(planned_start)) + abs(
-            int(actual_out_abs) - int(planned_end_abs)
-        )
+    best_match: dict[str, Any] | None = None
+    best_match_score: int | None = None
+    for srow in matching:
+        sc = _score(srow)
+        if sc is None:
+            continue
+        if best_match_score is None or int(sc) < int(best_match_score):
+            best_match_score = int(sc)
+            best_match = srow
 
-        if best_score is None or int(score) < int(best_score):
-            best_score = int(score)
-            best_row = srow
+    # If we have a window-matching shift and it's close to the best overall, use it.
+    # Otherwise, fall back to the best overall by start/end closeness.
+    if (
+        best_match is not None
+        and best_match_score is not None
+        and best_all_score is not None
+    ):
+        window_slack_seconds = 60 * 60  # 60 minutes slack
+        if int(best_match_score) <= int(best_all_score) + int(window_slack_seconds):
+            return [best_match]
 
-    return [best_row] if best_row is not None else list(shift_rows)
+    return [best_all] if best_all is not None else list(shift_rows)
 
 
 def _actual_first_in_seconds(row: dict[str, Any]) -> int | None:
@@ -403,6 +465,14 @@ def _actual_last_out_seconds(row: dict[str, Any]) -> int | None:
     return int(max(outs)) if outs else None
 
 
+def _actual_in1_seconds(row: dict[str, Any]) -> int | None:
+    return _parse_time_to_seconds((row or {}).get("in_1"))
+
+
+def _actual_out1_seconds(row: dict[str, Any]) -> int | None:
+    return _parse_time_to_seconds((row or {}).get("out_1"))
+
+
 def _sum_work_seconds(pairs: list[tuple[object | None, object | None]]) -> int:
     total = 0
     for t_in, t_out in pairs:
@@ -417,6 +487,100 @@ def _sum_work_seconds(pairs: list[tuple[object | None, object | None]]) -> int:
         if dur > 0:
             total += dur
     return int(total)
+
+
+def _build_work_intervals_abs(
+    pairs: list[tuple[object | None, object | None]],
+) -> list[tuple[int, int]]:
+    """Return work intervals as (start_sec, end_abs_sec) with overnight support."""
+
+    out: list[tuple[int, int]] = []
+    for t_in, t_out in pairs or []:
+        s_in = _parse_time_to_seconds(t_in)
+        s_out = _parse_time_to_seconds(t_out)
+        if s_in is None or s_out is None:
+            continue
+        start = int(s_in)
+        end = int(s_out)
+        if end < start:
+            end += 86400
+        if end > start:
+            out.append((start, end))
+    return out
+
+
+def _overlap_seconds(a0: int, a1: int, b0: int, b1: int) -> int:
+    """Overlap length of [a0,a1] and [b0,b1] in seconds."""
+
+    lo = max(int(a0), int(b0))
+    hi = min(int(a1), int(b1))
+    return int(hi - lo) if hi > lo else 0
+
+
+def _lunch_interval_abs_for_shift(shift_row: dict[str, Any]) -> tuple[int, int] | None:
+    if not shift_row:
+        return None
+
+    ls = _parse_time_to_seconds(shift_row.get("lunch_start"))
+    le = _parse_time_to_seconds(shift_row.get("lunch_end"))
+    if ls is None or le is None:
+        return None
+
+    try:
+        planned_start = _parse_time_to_seconds(shift_row.get("time_in"))
+        planned_end_abs = _planned_end_abs_seconds_single(shift_row)
+    except Exception:
+        planned_start = None
+        planned_end_abs = None
+
+    # Align lunch to the same absolute-day window as the shift if it is an overnight shift.
+    if (
+        planned_start is not None
+        and planned_end_abs is not None
+        and int(planned_end_abs) >= 86400
+    ):
+        if int(ls) < int(planned_start):
+            ls = int(ls) + 86400
+        if int(le) < int(planned_start):
+            le = int(le) + 86400
+
+    ls_i = int(ls)
+    le_i = int(le)
+    if le_i < ls_i:
+        le_i += 86400
+    if le_i <= ls_i:
+        return None
+    return (ls_i, le_i)
+
+
+def _worked_seconds_excluding_lunch(
+    pairs: list[tuple[object | None, object | None]],
+    *,
+    shift_row: dict[str, Any] | None,
+) -> int:
+    """Sum worked seconds from punch pairs, subtracting lunch overlap when configured."""
+
+    intervals = _build_work_intervals_abs(pairs)
+    if not intervals:
+        return 0
+
+    total = 0
+    for a0, a1 in intervals:
+        total += int(a1 - a0)
+
+    if not shift_row:
+        return int(max(0, total))
+
+    lunch = _lunch_interval_abs_for_shift(shift_row)
+    if lunch is None:
+        return int(max(0, total))
+
+    ls, le = lunch
+    lunch_overlap = 0
+    for a0, a1 in intervals:
+        lunch_overlap += _overlap_seconds(int(a0), int(a1), int(ls), int(le))
+
+    return int(max(0, total - lunch_overlap))
 
 
 def _shift_is_overnight(shift_row: dict[str, Any]) -> bool:
@@ -459,7 +623,9 @@ class AttendanceSymbolMap:
     kr: str = "KR"  # thiếu giờ ra
     kv: str = "KV"  # thiếu giờ vào
     holiday: str = "Le"  # nghỉ lễ (C10)
-    absent: str = "V"  # vắng (mặc định không chấm công) (C07)
+    absent: str = "V"  # vắng (C07)
+    off: str = "OFF"  # ngày không xếp ca (C09)
+    overnight_ok: str = "Đ"  # đúng giờ ca có qua đêm (C08)
 
 
 class ShiftAttendanceMainContent2Service:
@@ -469,22 +635,48 @@ class ShiftAttendanceMainContent2Service:
         self._symbol_service = symbol_service or AttendanceSymbolService()
         self._cached_symbols: AttendanceSymbolMap | None = None
 
-    def _load_symbols(self) -> AttendanceSymbolMap:
-        if self._cached_symbols is not None:
+    def _load_symbols(self, *, force_reload: bool = False) -> AttendanceSymbolMap:
+        # Symbols can be edited at runtime via the UI, so allow callers
+        # to bypass caching and always fetch the latest values from DB.
+        if (not force_reload) and self._cached_symbols is not None:
             return self._cached_symbols
 
         data = self._symbol_service.list_rows_by_code() or {}
+
+        def _sym(code: str, default: str) -> str:
+            """Return symbol text if visible; otherwise return empty string.
+
+            Rule:
+            - If the code exists in DB and is_visible != 1 => hidden => ""
+            - If the code is missing (should not happen with seeded DB) => use default
+            """
+
+            row = data.get(code)
+            if row is not None:
+                try:
+                    if int(row.get("is_visible") or 0) != 1:
+                        return ""
+                except Exception:
+                    return ""
+                v = str(row.get("symbol") or "").strip()
+                return v or str(default).strip()
+            return str(default).strip()
+
         # Defaults from seed: C05=KR (thiếu giờ ra), C06=KV (thiếu giờ vào)
-        kr = str((data.get("C05") or {}).get("symbol") or "KR").strip() or "KR"
-        kv = str((data.get("C06") or {}).get("symbol") or "KV").strip() or "KV"
-        holiday = str((data.get("C10") or {}).get("symbol") or "Le").strip() or "Le"
-        absent = str((data.get("C07") or {}).get("symbol") or "V").strip() or "V"
+        kr = _sym("C05", "KR")
+        kv = _sym("C06", "KV")
+        holiday = _sym("C10", "Le")
+        absent = _sym("C07", "V")
+        off = _sym("C09", "OFF")
+        overnight_ok = _sym("C08", "Đ")
 
         self._cached_symbols = AttendanceSymbolMap(
             kr=kr,
             kv=kv,
             holiday=holiday,
             absent=absent,
+            off=off,
+            overnight_ok=overnight_ok,
         )
         return self._cached_symbols
 
@@ -507,7 +699,8 @@ class ShiftAttendanceMainContent2Service:
         if not rows:
             return []
 
-        sym = self._load_symbols()
+        # Always refresh symbols from DB to reflect latest configuration.
+        sym = self._load_symbols(force_reload=True)
 
         # Normalize to mutable dicts so we can do cross-day adjustments for overnight shifts.
         src_rows: list[dict[str, Any]] = [dict(r or {}) for r in (rows or [])]
@@ -669,26 +862,32 @@ class ShiftAttendanceMainContent2Service:
 
             has_punch = False
             for k in ("in_1", "out_1", "in_2", "out_2", "in_3", "out_3"):
-                if _parse_time_to_seconds((rr or {}).get(k)) is not None:
+                vv = (rr or {}).get(k)
+                if (not _is_empty_time_value(vv)) and _parse_time_to_seconds(
+                    vv
+                ) is not None:
                     has_punch = True
                     break
 
-            # 1) Fill KV/KR for missing in/out cells
-            for idx in (1, 2, 3):
-                k_in = f"in_{idx}"
-                k_out = f"out_{idx}"
+            # 1) Fill KV/KR for missing in/out cells (only when there is at least one punch)
+            if has_punch:
+                for idx in (1, 2, 3):
+                    k_in = f"in_{idx}"
+                    k_out = f"out_{idx}"
 
-                v_in = rr.get(k_in)
-                v_out = rr.get(k_out)
+                    v_in = rr.get(k_in)
+                    v_out = rr.get(k_out)
 
-                empty_in = _is_empty_time_value(v_in)
-                empty_out = _is_empty_time_value(v_out)
+                    empty_in = _is_empty_time_value(v_in)
+                    empty_out = _is_empty_time_value(v_out)
 
-                # only fill when the other side exists
-                if empty_in and not empty_out:
-                    rr[k_in] = sym.kv
-                if empty_out and not empty_in:
-                    rr[k_out] = sym.kr
+                    # only fill when the other side exists
+                    if empty_in and not empty_out:
+                        if sym.kv:
+                            rr[k_in] = sym.kv
+                    if empty_out and not empty_in:
+                        if sym.kr:
+                            rr[k_out] = sym.kr
 
             # 2) Compute hours/work when missing.
             # Prefer schedule+work_shifts (planned) to properly subtract lunch.
@@ -710,17 +909,17 @@ class ShiftAttendanceMainContent2Service:
             # Late/Early minutes (will be displayed with C01/C02 symbols in UI).
             late_minutes = 0
             early_minutes = 0
+            is_overnight_matched_shift = False
 
-            # Holiday/undeclared rule:
-            # - If it's a holiday and there are NO punches, show holiday symbol in `leave`.
-            # - Days not declared in schedule are treated as Sunday for schedule day lookup.
-            # - If holiday has scheduled shift but no punches => holiday symbol.
-            # - If holiday has punches => keep punches (no override).
-            # - If day is NOT declared in schedule and NOT a holiday (and no punches) => fill C07.
+            # V/OFF display rule (fill into in_1 only when there are NO punches):
+            # - If work_date is a holiday => use C10 symbol (Le) in in_1
+            # - Else, lookup schedule day shifts:
+            #   - If the day declares any shift => use C07 symbol (V) in in_1
+            #   - If the day declares no shift => use C09 symbol (OFF) in in_1
             schedule_name_for_rule = str(rr.get("schedule") or "").strip()
             effective_day_key: str | None = None
             has_scheduled_shift = False
-            is_undeclared_day = False
+            has_shift_on_actual_day = False
             if (
                 schedule_name_for_rule
                 and d
@@ -732,38 +931,32 @@ class ShiftAttendanceMainContent2Service:
                     day_map = day_shift_ids_by_schedule_id.get(int(sched_id)) or {}
                     actual_key = _day_key_from_date(d)
                     declared_shift_ids = day_map.get(actual_key) or []
-                    # "Không được khai báo": không có key, hoặc có key nhưng không có ca.
-                    is_undeclared_day = (actual_key not in day_map) or (
-                        not declared_shift_ids
-                    )
+                    has_shift_on_actual_day = bool(declared_shift_ids)
                     effective_day_key = actual_key if actual_key in day_map else "sun"
                     shift_ids_for_rule = day_map.get(effective_day_key) or []
                     has_scheduled_shift = bool(shift_ids_for_rule)
             if effective_day_key is None and d:
                 effective_day_key = _day_key_from_date(d)
 
-            mark_absent_c07 = bool(
-                (not has_punch) and (not is_holiday) and is_undeclared_day
-            )
+            if (not has_punch) and _is_empty_time_value(rr.get("in_1")):
+                if is_holiday:
+                    if sym.holiday:
+                        rr["in_1"] = sym.holiday
+                else:
+                    # If schedule is missing/unmapped, default to OFF.
+                    if has_shift_on_actual_day:
+                        if sym.absent:
+                            rr["in_1"] = sym.absent
+                    else:
+                        if sym.off:
+                            rr["in_1"] = sym.off
 
-            # Holiday: if the date is a holiday and there are NO punches, always mark holiday.
-            # (Do not depend on schedule mapping; users expect KH shows lễ consistently.)
+            # Holiday with no punches: skip late/early + planned hours/work calculations.
             mark_holiday = bool(is_holiday and (not has_punch))
-
-            if mark_holiday:
-                cur_leave = rr.get("leave")
-                if cur_leave is None or str(cur_leave or "").strip() == "":
-                    rr["leave"] = sym.holiday
-
-            if mark_absent_c07 and not mark_holiday:
-                cur_leave = rr.get("leave")
-                if cur_leave is None or str(cur_leave or "").strip() == "":
-                    rr["leave"] = sym.absent
 
             # Compute late/early when there are punches AND there is a declared shift for the day.
             if (
                 (not mark_holiday)
-                and (not mark_absent_c07)
                 and has_punch
                 and schedule_name_for_rule
                 and d
@@ -796,13 +989,33 @@ class ShiftAttendanceMainContent2Service:
                     if len(shift_rows) > 1:
                         shift_rows = _select_best_shift_rows(shift_rows, rr)
 
-                    planned_start = _planned_start_seconds(shift_rows)
-                    planned_end_abs = _planned_end_abs_seconds(shift_rows)
+                    # Rule per spec:
+                    # - late if in_1 > time_in
+                    # - early if time_out > out_1
+                    # Choose matched shift (already filtered if multiple shifts).
+                    matched = shift_rows[0] if shift_rows else None
+
+                    planned_start = _shift_time_in_seconds(matched) if matched else None
+                    planned_end_abs = (
+                        _planned_end_abs_seconds_single(matched) if matched else None
+                    )
+                    if planned_end_abs is not None and int(planned_end_abs) >= 86400:
+                        is_overnight_matched_shift = True
+
+                    # Use the first in and last out across all punches.
                     actual_in = _actual_first_in_seconds(rr)
                     actual_out = _actual_last_out_seconds(rr)
 
                     if planned_start is not None and actual_in is not None:
-                        diff = int(actual_in) - int(planned_start)
+                        actual_in_abs = int(actual_in)
+                        if (
+                            planned_end_abs is not None
+                            and int(planned_end_abs) >= 86400
+                        ):
+                            # Overnight shift: treat after-midnight punch as +86400
+                            if int(actual_in_abs) < int(planned_start):
+                                actual_in_abs += 86400
+                        diff = int(actual_in_abs) - int(planned_start)
                         if diff > 0:
                             late_minutes = int(diff // 60)
 
@@ -817,6 +1030,21 @@ class ShiftAttendanceMainContent2Service:
             # Normalize output: if not late/early => 0
             rr["late"] = int(late_minutes) if int(late_minutes) > 0 else 0
             rr["early"] = int(early_minutes) if int(early_minutes) > 0 else 0
+
+            # Overnight on-time marker (C08): show in `leave` for night shifts.
+            # Rule per request: use symbol 'Đ' for punches in overnight shift.
+            # Do not overwrite existing leave values (e.g. real leave hours).
+            if (
+                has_punch
+                and (not mark_holiday)
+                and bool(is_overnight_matched_shift)
+                and int(rr.get("late") or 0) == 0
+                and int(rr.get("early") or 0) == 0
+            ):
+                cur_leave = rr.get("leave")
+                if cur_leave is None or str(cur_leave or "").strip() == "":
+                    if sym.overnight_ok:
+                        rr["leave"] = sym.overnight_ok
 
             # If there are no punches at all, do not compute planned hours/work from schedule.
             # Display 0 for giờ/công (+) when missing.
@@ -837,7 +1065,7 @@ class ShiftAttendanceMainContent2Service:
             if need_hours or need_work:
                 schedule_name = str(rr.get("schedule") or "").strip()
                 # For holiday with no punches, do not auto-fill planned hours/work.
-                if mark_holiday or mark_absent_c07:
+                if mark_holiday:
                     schedule_name = ""
                 if (
                     schedule_name
@@ -866,8 +1094,14 @@ class ShiftAttendanceMainContent2Service:
                                 shift_rows.append(srow)
 
                         # When there are punches, compute hours from actual punches.
-                        # Work is awarded (1 công / nửa công) only when actual minutes
-                        # meet the configured required minutes of the matched shift.
+                        # Rule:
+                        # - Pick matched shift by schedule day + in/out windows.
+                        # - Compute worked minutes (excluding lunch overlap).
+                        # - If worked >= required(total_minutes):
+                        #     hours = required_minutes/60, work = work_count
+                        #     overtime = worked - required => hours_plus/work_plus
+                        #   Else:
+                        #     hours = worked/60, work = proportional to work_count
                         if has_punch and shift_rows:
                             matched_rows = (
                                 _select_best_shift_rows(shift_rows, rr)
@@ -890,123 +1124,112 @@ class ShiftAttendanceMainContent2Service:
                                     continue
                                 clean_pairs.append((a, b))
 
-                            worked_sec = _sum_work_seconds(clean_pairs)
+                            worked_sec = _worked_seconds_excluding_lunch(
+                                clean_pairs,
+                                shift_row=matched,
+                            )
                             worked_min = int(worked_sec // 60) if worked_sec > 0 else 0
-                            worked_hours = (
-                                round(float(worked_min) / 60.0, 2)
-                                if worked_min > 0
+
+                            required_min = (
+                                _shift_effective_minutes(matched)
+                                if matched is not None
+                                else None
+                            )
+                            wc = (
+                                _shift_work_count(matched)
+                                if matched is not None
+                                else None
+                            )
+
+                            # Overtime rounding step in minutes (floor to step)
+                            ot_step_min = (
+                                _shift_overtime_round_minutes(matched)
+                                if matched is not None
                                 else 0
+                            )
+                            ot_step_min = int(ot_step_min or 0)
+
+                            normal_min = int(worked_min)
+                            ot_min = 0
+                            if required_min is not None and int(required_min) > 0:
+                                if int(worked_min) >= int(required_min):
+                                    normal_min = int(required_min)
+                                    ot_min = int(worked_min) - int(required_min)
+                                else:
+                                    normal_min = int(worked_min)
+                                    ot_min = 0
+
+                            ot_min_rounded = _round_down_minutes_to_step(
+                                int(ot_min), ot_step_min
                             )
 
                             if need_hours:
-                                rr["hours"] = worked_hours
+                                rr["hours"] = (
+                                    round(float(normal_min) / 60.0, 2)
+                                    if normal_min > 0
+                                    else 0
+                                )
                                 need_hours = False
 
                             if need_work:
-                                required_min = (
-                                    _shift_effective_minutes(matched)
-                                    if matched is not None
-                                    else None
-                                )
-                                wc = (
-                                    _shift_work_count(matched)
-                                    if matched is not None
-                                    else None
-                                )
-
                                 if (
                                     required_min is not None
                                     and int(required_min) > 0
-                                    and worked_min >= int(required_min)
                                     and wc is not None
                                     and float(wc) > 0
                                 ):
-                                    rr["work"] = round(float(wc), 2)
+                                    if int(worked_min) >= int(required_min):
+                                        rr["work"] = round(float(wc), 2)
+                                    else:
+                                        rr["work"] = round(
+                                            (float(normal_min) / float(required_min))
+                                            * float(wc),
+                                            2,
+                                        )
                                 else:
-                                    # Not enough minutes: show partial work from hours.
-                                    rr["work"] = round(float(worked_hours) / 8.0, 2)
+                                    # Fallback (legacy): 8h = 1 công
+                                    rr["work"] = round(
+                                        (float(normal_min) / 60.0) / 8.0, 2
+                                    )
                                 need_work = False
+
+                            if need_hours_plus:
+                                rr["hours_plus"] = (
+                                    round(float(ot_min_rounded) / 60.0, 2)
+                                    if ot_min_rounded > 0
+                                    else 0
+                                )
+                                need_hours_plus = False
+
+                            if need_work_plus:
+                                if (
+                                    required_min is not None
+                                    and int(required_min) > 0
+                                    and wc is not None
+                                    and float(wc) > 0
+                                ):
+                                    rr["work_plus"] = (
+                                        round(
+                                            (
+                                                float(ot_min_rounded)
+                                                / float(required_min)
+                                            )
+                                            * float(wc),
+                                            2,
+                                        )
+                                        if ot_min_rounded > 0
+                                        else 0
+                                    )
+                                else:
+                                    rr["work_plus"] = round(
+                                        (float(ot_min_rounded) / 60.0) / 8.0, 2
+                                    )
+                                need_work_plus = False
 
                         # If no punches, planned hours/work filling is handled earlier (0 display).
 
-            # 2b) Compute overtime (Giờ +) when missing: actual last out after planned end.
-            if need_hours_plus or need_work_plus:
-                schedule_name = str(rr.get("schedule") or "").strip()
-                # For holiday with no punches, do not compute overtime.
-                if mark_holiday or mark_absent_c07:
-                    schedule_name = ""
-                if (
-                    schedule_name
-                    and d
-                    and schedule_id_by_name
-                    and day_shift_ids_by_schedule_id
-                    and work_shift_by_id
-                ):
-                    sched_id = schedule_id_by_name.get(schedule_name)
-                    if sched_id is not None:
-                        day_map = day_shift_ids_by_schedule_id.get(int(sched_id)) or {}
-                        day_key = _day_key_from_date(d)
-                        # Treat non-declared days as Sunday
-                        use_key = day_key if day_key in day_map else "sun"
-                        shift_ids = day_map.get(use_key) or []
-
-                        shift_rows: list[dict[str, Any]] = []
-                        for sid in shift_ids:
-                            srow = (
-                                work_shift_by_id.get(int(sid))
-                                if work_shift_by_id
-                                else None
-                            )
-                            if srow:
-                                shift_rows.append(srow)
-
-                        # If multiple shifts, compute overtime against the matched shift.
-                        if has_punch and len(shift_rows) > 1:
-                            shift_rows = _select_best_shift_rows(shift_rows, rr)
-
-                        planned_start = _planned_start_seconds(shift_rows)
-                        planned_end_abs = _planned_end_abs_seconds(shift_rows)
-                        actual_in = _actual_first_in_seconds(rr)
-                        actual_out = _actual_last_out_seconds(rr)
-
-                        # Tolerance minutes for rounding (use max configured among shifts).
-                        tol_min = 0
-                        for srow in shift_rows:
-                            v = _shift_overtime_round_minutes(srow)
-                            if v is not None and int(v) > int(tol_min):
-                                tol_min = int(v)
-
-                        early_min = 0
-                        late_min = 0
-
-                        # Early check-in before planned start counts as overtime too.
-                        if planned_start is not None and actual_in is not None:
-                            diff = int(planned_start) - int(actual_in)
-                            if diff > 0:
-                                early_min = int(diff // 60)
-
-                        # Late check-out after planned end counts as overtime.
-                        if planned_end_abs is not None and actual_out is not None:
-                            actual_out_abs = _actual_out_abs_seconds(
-                                int(actual_out), int(planned_end_abs)
-                            )
-                            diff2 = int(actual_out_abs) - int(planned_end_abs)
-                            if diff2 > 0:
-                                late_min = int(diff2 // 60)
-
-                        # Round each side to 30-minute blocks with ±tol.
-                        early_rounded = _round_minutes_to_30_blocks(early_min, tol_min)
-                        late_rounded = _round_minutes_to_30_blocks(late_min, tol_min)
-                        total_ot_minutes = int(early_rounded) + int(late_rounded)
-
-                        if total_ot_minutes > 0:
-                            ot_hours = round(float(total_ot_minutes) / 60.0, 2)
-                            if need_hours_plus:
-                                rr["hours_plus"] = ot_hours
-                                need_hours_plus = False
-                            if need_work_plus:
-                                rr["work_plus"] = round(float(ot_hours) / 8.0, 2)
-                                need_work_plus = False
+            # 2b) Overtime (Giờ +) is computed together with hours/work above
+            # based on exceeded minutes vs shift required minutes.
 
             # Fallback: compute from punches if still missing.
             if need_hours:
