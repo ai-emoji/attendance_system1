@@ -94,6 +94,7 @@ class DeclareWorkShiftController:
             in_window_end=str(model.in_window_end or ""),
             out_window_start=str(model.out_window_start or ""),
             out_window_end=str(model.out_window_end or ""),
+            overtime_round_minutes=getattr(model, "overtime_round_minutes", None),
         )
 
     def on_save(self) -> None:

@@ -44,6 +44,68 @@ class Database:
         "use_unicode": True,
     }
 
+    # One-time schema sanity checks (best-effort).
+    _SCHEMA_CHECKED: bool = False
+
+    @staticmethod
+    def _ensure_schema(conn) -> None:
+        """Best-effort schema upgrades to keep app compatible across DB versions."""
+
+        if Database._SCHEMA_CHECKED:
+            return
+        Database._SCHEMA_CHECKED = True
+
+        # Ensure new columns exist (do not crash the app if no ALTER permission).
+        cursor = None
+        try:
+            schema_name = str(Database.CONFIG.get("database") or "").strip() or None
+            cursor = Database.get_cursor(conn, dictionary=False)
+
+            # work_shifts.overtime_round_minutes (used by Shift Attendance overtime grace)
+            if schema_name:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='work_shifts' AND COLUMN_NAME='overtime_round_minutes'",
+                    (schema_name,),
+                )
+            else:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                    "WHERE TABLE_NAME='work_shifts' AND COLUMN_NAME='overtime_round_minutes'",
+                )
+
+            row = cursor.fetchone()
+            exists = False
+            try:
+                exists = bool(row and int(row[0]) > 0)
+            except Exception:
+                exists = False
+
+            if not exists:
+                try:
+                    cursor.execute(
+                        "ALTER TABLE work_shifts "
+                        "ADD COLUMN overtime_round_minutes INT NOT NULL DEFAULT 0"
+                    )
+                    conn.commit()
+                    logger.info(
+                        "✅ Auto-migrate: added work_shifts.overtime_round_minutes"
+                    )
+                except Exception:
+                    logger.warning(
+                        "⚠️ Không thể tự động thêm cột work_shifts.overtime_round_minutes. "
+                        "Vui lòng chạy script cập nhật CSDL (creater_database.SQL).",
+                        exc_info=True,
+                    )
+        except Exception:
+            logger.debug("Schema ensure failed", exc_info=True)
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+
     @staticmethod
     def load_config_from_file(config_file: str | None = None) -> None:
         """Load cấu hình kết nối từ file JSON.
@@ -51,7 +113,11 @@ class Database:
         Mặc định: database/db_config.json (qua resource_path).
         """
 
-        path = Path(config_file) if config_file else Path(resource_path("database/db_config.json"))
+        path = (
+            Path(config_file)
+            if config_file
+            else Path(resource_path("database/db_config.json"))
+        )
         try:
             if not path.exists() or not path.is_file():
                 return
@@ -111,6 +177,13 @@ class Database:
         try:
             conn = mysql.connector.connect(**Database.CONFIG)
             logger.info("✅ Kết nối MySQL thành công")
+
+            # Best-effort schema checks (once per process)
+            try:
+                Database._ensure_schema(conn)
+            except Exception:
+                pass
+
             return conn
         except mysql.connector.Error as err:
             if err.errno == mysql.connector.errorcode.ER_ACCESS_DENIED_ERROR:

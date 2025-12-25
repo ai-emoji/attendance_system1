@@ -97,6 +97,12 @@ class DownloadAttendanceRepository:
     def upsert_attendance_raw(self, rows: list[dict[str, Any]]) -> int:
         return self._upsert_many(self._TABLE_RAW, rows)
 
+    def insert_ignore_download_attendance(self, rows: list[dict[str, Any]]) -> int:
+        return self._insert_ignore_many(self._TABLE_TEMP, rows)
+
+    def insert_ignore_attendance_raw(self, rows: list[dict[str, Any]]) -> int:
+        return self._insert_ignore_many(self._TABLE_RAW, rows)
+
     def _upsert_many(self, table: str, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
@@ -151,6 +157,62 @@ class DownloadAttendanceRepository:
                 return int(cursor.rowcount)
         except Exception:
             logger.exception("Lỗi upsert_many (%s)", table)
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()
+
+    def _insert_ignore_many(self, table: str, rows: list[dict[str, Any]]) -> int:
+        """Insert rows but never overwrite existing ones.
+
+        Used for generating 'no-punch' placeholder rows: we must not wipe real punches
+        that may already exist for the same (attendance_code, work_date, device_no).
+        """
+
+        if not rows:
+            return 0
+
+        query = (
+            f"INSERT IGNORE INTO {table} ("
+            "attendance_code, name_on_mcc, work_date, time_in_1, time_out_1, time_in_2, time_out_2, time_in_3, time_out_3, "
+            "device_no, device_id, device_name"
+            ") VALUES ("
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
+            ")"
+        )
+
+        params: list[tuple[Any, ...]] = []
+        for r in rows:
+            params.append(
+                (
+                    str(r.get("attendance_code") or ""),
+                    str(r.get("name_on_mcc") or ""),
+                    str(r.get("work_date") or ""),
+                    r.get("time_in_1"),
+                    r.get("time_out_1"),
+                    r.get("time_in_2"),
+                    r.get("time_out_2"),
+                    r.get("time_in_3"),
+                    r.get("time_out_3"),
+                    int(r.get("device_no") or 0),
+                    (
+                        int(r.get("device_id") or 0)
+                        if r.get("device_id") is not None
+                        else None
+                    ),
+                    str(r.get("device_name") or ""),
+                )
+            )
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=False)
+                cursor.executemany(query, params)
+                conn.commit()
+                return int(cursor.rowcount)
+        except Exception:
+            logger.exception("Lỗi insert_ignore_many (%s)", table)
             raise
         finally:
             if cursor is not None:

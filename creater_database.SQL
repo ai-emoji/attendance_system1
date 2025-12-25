@@ -341,10 +341,26 @@
         in_window_end TIME NULL,
         out_window_start TIME NULL,
         out_window_end TIME NULL,
+        overtime_round_minutes INT NOT NULL DEFAULT 0,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_work_shifts_shift_code (shift_code)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- Add column overtime_round_minutes if missing (migrate for existing DB)
+    SET @col_ot_round := (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = 'hr_attendance'
+          AND TABLE_NAME = 'work_shifts'
+          AND COLUMN_NAME = 'overtime_round_minutes'
+    );
+    SET @sql_add_ot_round := IF(
+        @col_ot_round = 0,
+        'ALTER TABLE hr_attendance.work_shifts ADD COLUMN overtime_round_minutes INT NOT NULL DEFAULT 0 AFTER out_window_end',
+        'SELECT 1'
+    );
+    PREPARE stmt FROM @sql_add_ot_round; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
     /* Seed ca mặc định (nếu chưa có) để module Sắp xếp lịch trình dùng ngay */
     /* Lưu ý: chỉ seed các cột cơ bản để tránh lỗi khi DB đã có work_shifts theo schema cũ */

@@ -34,6 +34,7 @@ class WorkShiftModel:
     in_window_end: str | None
     out_window_start: str | None
     out_window_end: str | None
+    overtime_round_minutes: int | None
 
 
 class DeclareWorkShiftService:
@@ -93,6 +94,11 @@ class DeclareWorkShiftService:
                             if r.get("out_window_end") is not None
                             else None
                         ),
+                        overtime_round_minutes=(
+                            int(r.get("overtime_round_minutes"))
+                            if r.get("overtime_round_minutes") is not None
+                            else None
+                        ),
                     )
                 )
             except Exception:
@@ -149,6 +155,11 @@ class DeclareWorkShiftService:
                 out_window_end=(
                     str(row.get("out_window_end"))
                     if row.get("out_window_end") is not None
+                    else None
+                ),
+                overtime_round_minutes=(
+                    int(row.get("overtime_round_minutes"))
+                    if row.get("overtime_round_minutes") is not None
                     else None
                 ),
             )
@@ -219,6 +230,7 @@ class DeclareWorkShiftService:
         in_window_end_raw = (form.get("in_window_end") or "").strip()
         out_window_start_raw = (form.get("out_window_start") or "").strip()
         out_window_end_raw = (form.get("out_window_end") or "").strip()
+        overtime_round_minutes_raw = (form.get("overtime_round_minutes") or "").strip()
 
         if not shift_code:
             return False, "Vui lòng nhập Mã ca làm việc.", None
@@ -302,6 +314,17 @@ class DeclareWorkShiftService:
             if work_count < 0:
                 return False, "Đếm công <công> không hợp lệ.", None
 
+        overtime_round_minutes: int | None
+        if not overtime_round_minutes_raw:
+            overtime_round_minutes = None
+        else:
+            try:
+                overtime_round_minutes = int(float(overtime_round_minutes_raw))
+            except Exception:
+                return False, "Mức làm tròn cho phép giờ + <phút> không hợp lệ.", None
+            if overtime_round_minutes < 0:
+                return False, "Mức làm tròn cho phép giờ + <phút> không hợp lệ.", None
+
         return (
             True,
             "OK",
@@ -317,6 +340,7 @@ class DeclareWorkShiftService:
                 "in_window_end": in_window_end,
                 "out_window_start": out_window_start,
                 "out_window_end": out_window_end,
+                "overtime_round_minutes": overtime_round_minutes,
             },
         )
 

@@ -19,6 +19,7 @@ from datetime import date, datetime, time, timedelta
 from repository.device_repository import DeviceRepository
 from repository.download_attendance_repository import DownloadAttendanceRepository
 from repository.attendance_audit_repository import AttendanceAuditRepository
+from repository.employee_repository import EmployeeRepository
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class DownloadAttendanceService:
         self._repo = repo or DownloadAttendanceRepository()
         self._device_repo = device_repo or DeviceRepository()
         self._audit_repo = AttendanceAuditRepository()
+        self._employee_repo = EmployeeRepository()
 
     def list_devices_for_combo(self) -> list[tuple[int, str]]:
         rows = self._device_repo.list_devices()
@@ -442,6 +444,7 @@ class DownloadAttendanceService:
 
             # Build rows (max 6 timestamps -> 3 pairs)
             built: list[dict] = []
+            built_keys: set[tuple[str, date]] = set()
             total = len(groups)
             done = 0
 
@@ -468,6 +471,7 @@ class DownloadAttendanceService:
                         "device_name": device_name,
                     }
                 )
+                built_keys.add((str(user_id), wd))
 
                 done += 1
                 if progress_cb and total > 0 and done % 50 == 0:
@@ -480,9 +484,89 @@ class DownloadAttendanceService:
             self._repo.upsert_download_attendance(built)
             self._repo.upsert_attendance_raw(built)
 
+            # Persist placeholder rows for days without punches (không chấm công).
+            # Must NOT overwrite existing punch rows, so we insert-ignore.
+            no_punch_rows: list[dict] = []
+
+            # Target codes: prefer employees.mcc_code, but if device user list is available,
+            # restrict to codes existing on device to avoid generating irrelevant rows.
+            code_to_name: dict[str, str] = {}
+            device_codes = {
+                str(k or "").strip() for k in (user_name_by_id or {}).keys()
+            }
+
+            try:
+                employees = self._employee_repo.list_employees()
+            except Exception:
+                employees = []
+
+            for e in employees or []:
+                code = str(e.get("mcc_code") or "").strip()
+                if not code:
+                    continue
+                if device_codes and code not in device_codes:
+                    continue
+                nm = str(e.get("name_on_mcc") or "" or "").strip()
+                if not nm:
+                    nm = str(e.get("full_name") or "").strip()
+                if code not in code_to_name:
+                    code_to_name[code] = nm
+
+            # Fallback: if no employee codes matched, use device users.
+            if not code_to_name and device_codes:
+                for code in device_codes:
+                    if code:
+                        code_to_name[code] = str(
+                            user_name_by_id.get(code) or ""
+                        ).strip()
+
+            # Always include codes that appear in logs.
+            for code, _wd in built_keys:
+                if code and code not in code_to_name:
+                    code_to_name[code] = str(user_name_by_id.get(code) or "").strip()
+
+            if code_to_name and from_date <= to_date:
+                if progress_cb:
+                    progress_cb(
+                        "save",
+                        0,
+                        0,
+                        "Đang tạo dữ liệu không chấm công...",
+                    )
+
+                days = (to_date - from_date).days
+                for offset in range(days + 1):
+                    d = from_date + timedelta(days=offset)
+                    for code, nm in code_to_name.items():
+                        if (code, d) in built_keys:
+                            continue
+                        no_punch_rows.append(
+                            {
+                                "attendance_code": code,
+                                "name_on_mcc": str(nm or ""),
+                                "work_date": d.isoformat(),
+                                "time_in_1": None,
+                                "time_out_1": None,
+                                "time_in_2": None,
+                                "time_out_2": None,
+                                "time_in_3": None,
+                                "time_out_3": None,
+                                "device_no": device_no,
+                                "device_id": int(device_id),
+                                "device_name": device_name,
+                            }
+                        )
+
+                # Insert-ignore into temp + raw so we don't wipe existing punches.
+                if no_punch_rows:
+                    self._repo.insert_ignore_download_attendance(no_punch_rows)
+                    self._repo.insert_ignore_attendance_raw(no_punch_rows)
+
             # Copy directly to audit from downloaded data (best-effort)
             try:
                 self._audit_repo.upsert_from_download_rows(built)
+                if no_punch_rows:
+                    self._audit_repo.upsert_from_download_rows(no_punch_rows)
             except Exception:
                 logger.exception("Không thể ghi attendance_audit khi tải dữ liệu")
 

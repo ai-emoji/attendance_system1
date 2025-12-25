@@ -23,6 +23,13 @@ class DeclareWorkShiftRepository:
         query = (
             "SELECT id, shift_code, time_in, time_out, lunch_start, lunch_end, "
             "total_minutes, work_count, in_window_start, in_window_end, "
+            "out_window_start, out_window_end, overtime_round_minutes "
+            "FROM work_shifts ORDER BY id ASC"
+        )
+
+        query_legacy = (
+            "SELECT id, shift_code, time_in, time_out, lunch_start, lunch_end, "
+            "total_minutes, work_count, in_window_start, in_window_end, "
             "out_window_start, out_window_end "
             "FROM work_shifts ORDER BY id ASC"
         )
@@ -31,8 +38,23 @@ class DeclareWorkShiftRepository:
         try:
             with Database.connect() as conn:
                 cursor = Database.get_cursor(conn, dictionary=True)
-                cursor.execute(query)
-                return list(cursor.fetchall() or [])
+                try:
+                    cursor.execute(query)
+                    rows = list(cursor.fetchall() or [])
+                except Exception as exc:
+                    msg = str(exc)
+                    if "overtime_round_minutes" in msg and "Unknown column" in msg:
+                        cursor.execute(query_legacy)
+                        rows = list(cursor.fetchall() or [])
+                    else:
+                        raise
+
+                for r in rows:
+                    try:
+                        r.setdefault("overtime_round_minutes", 0)
+                    except Exception:
+                        pass
+                return rows
         except Exception:
             logger.exception("Lỗi list_work_shifts")
             raise
@@ -44,6 +66,13 @@ class DeclareWorkShiftRepository:
         query = (
             "SELECT id, shift_code, time_in, time_out, lunch_start, lunch_end, "
             "total_minutes, work_count, in_window_start, in_window_end, "
+            "out_window_start, out_window_end, overtime_round_minutes "
+            "FROM work_shifts WHERE id = %s LIMIT 1"
+        )
+
+        query_legacy = (
+            "SELECT id, shift_code, time_in, time_out, lunch_start, lunch_end, "
+            "total_minutes, work_count, in_window_start, in_window_end, "
             "out_window_start, out_window_end "
             "FROM work_shifts WHERE id = %s LIMIT 1"
         )
@@ -52,8 +81,23 @@ class DeclareWorkShiftRepository:
         try:
             with Database.connect() as conn:
                 cursor = Database.get_cursor(conn, dictionary=True)
-                cursor.execute(query, (int(shift_id),))
-                return cursor.fetchone()
+                try:
+                    cursor.execute(query, (int(shift_id),))
+                    row = cursor.fetchone()
+                except Exception as exc:
+                    msg = str(exc)
+                    if "overtime_round_minutes" in msg and "Unknown column" in msg:
+                        cursor.execute(query_legacy, (int(shift_id),))
+                        row = cursor.fetchone()
+                    else:
+                        raise
+
+                if row is not None:
+                    try:
+                        row.setdefault("overtime_round_minutes", 0)
+                    except Exception:
+                        pass
+                return row
         except Exception:
             logger.exception("Lỗi get_work_shift")
             raise
@@ -74,11 +118,12 @@ class DeclareWorkShiftRepository:
         in_window_end: str | None,
         out_window_start: str | None,
         out_window_end: str | None,
+        overtime_round_minutes: int | None,
     ) -> int:
         query = (
             "INSERT INTO work_shifts (shift_code, time_in, time_out, lunch_start, lunch_end, "
-            "total_minutes, work_count, in_window_start, in_window_end, out_window_start, out_window_end) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "total_minutes, work_count, in_window_start, in_window_end, out_window_start, out_window_end, overtime_round_minutes) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         )
 
         cursor = None
@@ -99,6 +144,7 @@ class DeclareWorkShiftRepository:
                         in_window_end,
                         out_window_start,
                         out_window_end,
+                        overtime_round_minutes,
                     ),
                 )
                 conn.commit()
@@ -124,11 +170,12 @@ class DeclareWorkShiftRepository:
         in_window_end: str | None,
         out_window_start: str | None,
         out_window_end: str | None,
+        overtime_round_minutes: int | None,
     ) -> int:
         query = (
             "UPDATE work_shifts SET shift_code=%s, time_in=%s, time_out=%s, "
             "lunch_start=%s, lunch_end=%s, total_minutes=%s, work_count=%s, "
-            "in_window_start=%s, in_window_end=%s, out_window_start=%s, out_window_end=%s "
+            "in_window_start=%s, in_window_end=%s, out_window_start=%s, out_window_end=%s, overtime_round_minutes=%s "
             "WHERE id=%s"
         )
 
@@ -150,6 +197,7 @@ class DeclareWorkShiftRepository:
                         in_window_end,
                         out_window_start,
                         out_window_end,
+                        overtime_round_minutes,
                         int(shift_id),
                     ),
                 )

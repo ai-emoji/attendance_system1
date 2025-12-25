@@ -724,11 +724,27 @@ class MainContent1(QWidget):
         # Column visibility
         for idx in range(ncols):
             k, _label = self._COLUMNS[int(idx)]
-            visible = bool((ui.column_visible or {}).get(k, True))
+            # Fixed columns: always keep visible.
+            if str(k) in {"__check", "stt"}:
+                visible = True
+            else:
+                visible = bool((ui.column_visible or {}).get(k, True))
             try:
                 self.table.setColumnHidden(int(idx), not visible)
             except Exception:
                 pass
+
+        # Safety: never allow the table to have all columns hidden.
+        try:
+            any_visible = any(
+                not bool(self.table.isColumnHidden(int(i))) for i in range(int(ncols))
+            )
+            if not any_visible and ncols > 0:
+                self.table.setColumnHidden(0, False)
+                if ncols > 1:
+                    self.table.setColumnHidden(1, False)
+        except Exception:
+            pass
 
         # Alignment & per-column bold overrides (apply to existing items)
         align_map: dict[str, Qt.AlignmentFlag] = {}
@@ -1120,11 +1136,27 @@ class MainContent2(QWidget):
         # Column visibility
         for idx in range(ncols):
             k, _label = self._COLUMNS[int(idx)]
-            visible = bool((ui.column_visible or {}).get(k, True))
+            # Fixed columns: always keep visible.
+            if str(k) in {"__check", "stt"}:
+                visible = True
+            else:
+                visible = bool((ui.column_visible or {}).get(k, True))
             try:
                 self.table.setColumnHidden(int(idx), not visible)
             except Exception:
                 pass
+
+        # Safety: never allow the table to have all columns hidden.
+        try:
+            any_visible = any(
+                not bool(self.table.isColumnHidden(int(i))) for i in range(int(ncols))
+            )
+            if not any_visible and ncols > 0:
+                self.table.setColumnHidden(0, False)
+                if ncols > 1:
+                    self.table.setColumnHidden(1, False)
+        except Exception:
+            pass
 
         # Alignment & per-column bold overrides (apply to existing items)
         align_map: dict[str, Qt.AlignmentFlag] = {}

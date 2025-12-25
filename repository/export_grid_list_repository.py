@@ -64,49 +64,177 @@ class ExportGridListRepository:
             ")"
         )
         try:
-            Database.execute_update(ddl)
-            # Best-effort migration for older tables (ignore if already exists)
-            alters = [
-                "ALTER TABLE export_grid_list_settings ADD COLUMN export_kind VARCHAR(20) NOT NULL DEFAULT 'grid'",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN time_pairs INT NOT NULL DEFAULT 4",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_font_size INT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_bold TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_italic TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_underline TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_align VARCHAR(10) NOT NULL DEFAULT 'left'",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_font_size INT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_bold TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_italic TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_underline TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_align VARCHAR(10) NOT NULL DEFAULT 'left'",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_font_size INT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_bold TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_italic TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_underline TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_align VARCHAR(10) NOT NULL DEFAULT 'left'",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN creator_font_size INT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN creator_bold TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN creator_italic TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN creator_underline TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN creator_align VARCHAR(10) NOT NULL DEFAULT 'left'",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN note_text TEXT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN note_font_size INT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN note_bold TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN note_italic TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN note_underline TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN note_align VARCHAR(10) NOT NULL DEFAULT 'left'",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_text TEXT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_font_size INT NULL",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_bold TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_italic TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_underline TINYINT(1) NOT NULL DEFAULT 0",
-                "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_align VARCHAR(10) NOT NULL DEFAULT 'left'",
-            ]
-            for q in alters:
-                try:
-                    Database.execute_update(q)
-                except Exception:
-                    pass
+            # Use a single connection to avoid repeated connects + noisy duplicate-column errors.
+            cursor = None
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=False)
+
+                cursor.execute(ddl)
+                conn.commit()
+
+                schema_name = str(Database.CONFIG.get("database") or "").strip()
+                cursor.execute(
+                    "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='export_grid_list_settings'",
+                    (schema_name,),
+                )
+                existing = {
+                    str(r[0]).strip() for r in (cursor.fetchall() or []) if r and r[0]
+                }
+
+                # Best-effort migration for older tables: add only missing columns.
+                alters: list[tuple[str, str]] = [
+                    (
+                        "export_kind",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN export_kind VARCHAR(20) NOT NULL DEFAULT 'grid'",
+                    ),
+                    (
+                        "time_pairs",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN time_pairs INT NOT NULL DEFAULT 4",
+                    ),
+                    (
+                        "company_name_font_size",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_font_size INT NULL",
+                    ),
+                    (
+                        "company_name_bold",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_bold TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_name_italic",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_italic TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_name_underline",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_underline TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_name_align",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_name_align VARCHAR(10) NOT NULL DEFAULT 'left'",
+                    ),
+                    (
+                        "company_address_font_size",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_font_size INT NULL",
+                    ),
+                    (
+                        "company_address_bold",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_bold TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_address_italic",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_italic TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_address_underline",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_underline TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_address_align",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_address_align VARCHAR(10) NOT NULL DEFAULT 'left'",
+                    ),
+                    (
+                        "company_phone_font_size",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_font_size INT NULL",
+                    ),
+                    (
+                        "company_phone_bold",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_bold TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_phone_italic",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_italic TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_phone_underline",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_underline TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "company_phone_align",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN company_phone_align VARCHAR(10) NOT NULL DEFAULT 'left'",
+                    ),
+                    (
+                        "creator_font_size",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN creator_font_size INT NULL",
+                    ),
+                    (
+                        "creator_bold",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN creator_bold TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "creator_italic",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN creator_italic TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "creator_underline",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN creator_underline TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "creator_align",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN creator_align VARCHAR(10) NOT NULL DEFAULT 'left'",
+                    ),
+                    (
+                        "note_text",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN note_text TEXT NULL",
+                    ),
+                    (
+                        "note_font_size",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN note_font_size INT NULL",
+                    ),
+                    (
+                        "note_bold",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN note_bold TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "note_italic",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN note_italic TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "note_underline",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN note_underline TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "note_align",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN note_align VARCHAR(10) NOT NULL DEFAULT 'left'",
+                    ),
+                    (
+                        "detail_note_text",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_text TEXT NULL",
+                    ),
+                    (
+                        "detail_note_font_size",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_font_size INT NULL",
+                    ),
+                    (
+                        "detail_note_bold",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_bold TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "detail_note_italic",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_italic TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "detail_note_underline",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_underline TINYINT(1) NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "detail_note_align",
+                        "ALTER TABLE export_grid_list_settings ADD COLUMN detail_note_align VARCHAR(10) NOT NULL DEFAULT 'left'",
+                    ),
+                ]
+
+                for col, q in alters:
+                    if col in existing:
+                        continue
+                    try:
+                        cursor.execute(q)
+                        conn.commit()
+                        existing.add(col)
+                    except Exception:
+                        # Ignore: may lack permission, or another client migrated concurrently.
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
         except Exception:
             logger.exception("Không thể ensure bảng export_grid_list_settings")
             raise

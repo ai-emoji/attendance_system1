@@ -52,12 +52,12 @@ class AttendanceAuditRepository:
             "employee_code = IF(import_locked = 1, employee_code, VALUES(employee_code)), "
             "full_name = IF(import_locked = 1, full_name, VALUES(full_name)), "
             "weekday = IF(import_locked = 1, weekday, VALUES(weekday)), "
-            "in_1 = IF(import_locked = 1, in_1, VALUES(in_1)), "
-            "out_1 = IF(import_locked = 1, out_1, VALUES(out_1)), "
-            "in_2 = IF(import_locked = 1, in_2, VALUES(in_2)), "
-            "out_2 = IF(import_locked = 1, out_2, VALUES(out_2)), "
-            "in_3 = IF(import_locked = 1, in_3, VALUES(in_3)), "
-            "out_3 = IF(import_locked = 1, out_3, VALUES(out_3)), "
+            "in_1 = IF(import_locked = 1, in_1, COALESCE(VALUES(in_1), in_1)), "
+            "out_1 = IF(import_locked = 1, out_1, COALESCE(VALUES(out_1), out_1)), "
+            "in_2 = IF(import_locked = 1, in_2, COALESCE(VALUES(in_2), in_2)), "
+            "out_2 = IF(import_locked = 1, out_2, COALESCE(VALUES(out_2), out_2)), "
+            "in_3 = IF(import_locked = 1, in_3, COALESCE(VALUES(in_3), in_3)), "
+            "out_3 = IF(import_locked = 1, out_3, COALESCE(VALUES(out_3), out_3)), "
             "device_id = IF(import_locked = 1, device_id, VALUES(device_id)), "
             "device_name = IF(import_locked = 1, device_name, VALUES(device_name))"
         )
@@ -216,7 +216,7 @@ class AttendanceAuditRepository:
 
         query = (
             "SELECT "
-            "a.employee_code, a.full_name, a.work_date AS date, a.weekday, "
+            "a.attendance_code, a.employee_code, a.full_name, a.work_date AS date, a.weekday, "
             "a.in_1, a.out_1, a.in_2, a.out_2, a.in_3, a.out_3, "
             "a.late, a.early, a.hours, a.work, a.`leave`, a.hours_plus, a.work_plus, a.leave_plus, "
             "a.tc1, a.tc2, a.tc3, "

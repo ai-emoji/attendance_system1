@@ -575,6 +575,16 @@ class MainContent(QWidget):
             _mk_field_row("Kết thúc giờ ra để hiểu ca:", self.input_out_window_end)
         )
 
+        # Mức làm tròn cho phép giờ + (phút)
+        self.input_overtime_round_minutes = _mk_input("(ví dụ: 10)")
+        self.input_overtime_round_minutes.setValidator(QIntValidator(0, 100000, self))
+        right_layout.addWidget(
+            _mk_field_row(
+                "Mức làm tròn cho phép giờ + <phút>:",
+                self.input_overtime_round_minutes,
+            )
+        )
+
         right_layout.addStretch(1)
         root.addWidget(right, 1)
 
@@ -910,6 +920,10 @@ class MainContent(QWidget):
         self.out_window_end_h.setText("")
         self.out_window_end_m.setText("")
         self.out_window_end_s.setText("")
+        try:
+            self.input_overtime_round_minutes.setText("")
+        except Exception:
+            pass
 
     def get_form_data(self) -> dict:
         return {
@@ -942,6 +956,7 @@ class MainContent(QWidget):
             "out_window_end": self._get_time_value(
                 self.out_window_end_h, self.out_window_end_m, self.out_window_end_s
             ),
+            "overtime_round_minutes": (self.input_overtime_round_minutes.text() or ""),
         }
 
     def set_form(
@@ -957,6 +972,7 @@ class MainContent(QWidget):
         in_window_end: str,
         out_window_start: str,
         out_window_end: str,
+        overtime_round_minutes: int | None = None,
     ) -> None:
         self.input_shift_code.setText(shift_code or "")
         self._set_time_value(
@@ -1002,3 +1018,11 @@ class MainContent(QWidget):
             self.out_window_end_m,
             self.out_window_end_s,
         )
+        try:
+            self.input_overtime_round_minutes.setText(
+                ""
+                if overtime_round_minutes is None
+                else str(int(overtime_round_minutes))
+            )
+        except Exception:
+            pass

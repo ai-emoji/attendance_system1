@@ -25,7 +25,11 @@ from services.export_grid_list_services import (
     ExportGridListService,
     ExportGridListSettings,
 )
+from services.attendance_symbol_services import AttendanceSymbolService
 from services.shift_attendance_services import ShiftAttendanceService
+from ui.controllers.shift_attendance_maincontent2_controllers import (
+    ShiftAttendanceMainContent2Controller,
+)
 from ui.dialog.export_grid_list_dialog import ExportGridListDialog, NoteStyle
 from ui.dialog.title_dialog import MessageDialog
 
@@ -45,6 +49,7 @@ class ShiftAttendanceController:
         self._content1 = content1
         self._content2 = content2
         self._service = service or ShiftAttendanceService()
+        self._content2_logic = ShiftAttendanceMainContent2Controller()
         self._audit_mode: str = (
             "default"  # 'default' (dept/title) | 'selected' (checked)
         )
@@ -979,7 +984,8 @@ class ShiftAttendanceController:
 
         from_date, to_date = self._current_date_range()
         try:
-            rows = self._service.list_attendance_audit(
+            # Load + enrich rows: compute hours/work + fill KV/KR symbols.
+            rows = self._content2_logic.list_rows_enriched(
                 from_date=from_date,
                 to_date=to_date,
                 employee_ids=employee_ids,
@@ -1286,6 +1292,41 @@ class ShiftAttendanceController:
         if not cols:
             return
 
+        # Load symbols for displaying values like "2.63 +" or "1.0 X".
+        overtime_symbol = "+"  # C04
+        work_symbol = "X"  # C03
+        late_symbol = "Tr"  # C01
+        early_symbol = "Sm"  # C02
+        absent_symbol = "V"  # C07
+        holiday_symbol = "Le"  # C10
+        try:
+            sym = AttendanceSymbolService().list_rows_by_code()
+            overtime_symbol = (
+                str((sym.get("C04") or {}).get("symbol") or "+").strip() or "+"
+            )
+            work_symbol = (
+                str((sym.get("C03") or {}).get("symbol") or "X").strip() or "X"
+            )
+            late_symbol = (
+                str((sym.get("C01") or {}).get("symbol") or "Tr").strip() or "Tr"
+            )
+            early_symbol = (
+                str((sym.get("C02") or {}).get("symbol") or "Sm").strip() or "Sm"
+            )
+            absent_symbol = (
+                str((sym.get("C07") or {}).get("symbol") or "V").strip() or "V"
+            )
+            holiday_symbol = (
+                str((sym.get("C10") or {}).get("symbol") or "Le").strip() or "Le"
+            )
+        except Exception:
+            overtime_symbol = "+"
+            work_symbol = "X"
+            late_symbol = "Tr"
+            early_symbol = "Sm"
+            absent_symbol = "V"
+            holiday_symbol = "Le"
+
         table.setRowCount(len(rows))
         for r_idx, r in enumerate(rows):
             for c_idx, key in enumerate(cols):
@@ -1313,9 +1354,99 @@ class ShiftAttendanceController:
                             txt = self._content2._format_time_value(raw)  # type: ignore[attr-defined]
                         except Exception:
                             txt = raw
+
+                        # If there are NO punches, show markers in the first in-time column
+                        # so they remain visible even when the `leave` (KH) column is hidden.
+                        # - Holiday: show C10 symbol
+                        # - No-punch (không chấm công): show C07 symbol
+                        if key == "in_1" and (str(txt or "").strip() == ""):
+                            try:
+                                leave_txt = str(r.get("leave") or "").strip()
+                            except Exception:
+                                leave_txt = ""
+
+                            # Only when there are truly no time values at all.
+                            has_any_time = False
+                            for k2 in (
+                                "in_1",
+                                "out_1",
+                                "in_2",
+                                "out_2",
+                                "in_3",
+                                "out_3",
+                            ):
+                                vv = r.get(k2)
+                                if vv is None:
+                                    continue
+                                if str(vv).strip() != "":
+                                    has_any_time = True
+                                    break
+
+                            if not has_any_time:
+                                # Holiday precedence
+                                if leave_txt == holiday_symbol:
+                                    txt = holiday_symbol
+                                else:
+                                    # If it's explicitly absent (C07) OR empty leave, still show C07 in Vào 1.
+                                    # This matches the requirement: "nếu không chấm công tích V".
+                                    if (leave_txt == absent_symbol) or (
+                                        leave_txt == ""
+                                    ):
+                                        txt = absent_symbol
+
                         item = QTableWidgetItem(str(txt))
                         try:
                             item.setData(Qt.ItemDataRole.UserRole, raw)
+                        except Exception:
+                            pass
+                    elif key in {"hours_plus", "work_plus"}:
+                        # Display with symbol suffix, keep raw in UserRole.
+                        raw_val = v
+                        txt = "" if raw_val is None else str(raw_val)
+                        txt = txt.strip()
+                        if txt:
+                            # Avoid double-appending if already contains symbol
+                            if overtime_symbol and overtime_symbol not in txt:
+                                txt = f"{txt} {overtime_symbol}".strip()
+                        item = QTableWidgetItem(txt)
+                        try:
+                            item.setData(Qt.ItemDataRole.UserRole, raw_val)
+                        except Exception:
+                            pass
+                    elif key == "work":
+                        # Display Công with C03 symbol (e.g. "1.0 X"), keep raw in UserRole.
+                        raw_val = v
+                        txt = "" if raw_val is None else str(raw_val)
+                        txt = txt.strip()
+                        if txt:
+                            if work_symbol and work_symbol not in txt:
+                                txt = f"{txt} {work_symbol}".strip()
+                        item = QTableWidgetItem(txt)
+                        try:
+                            item.setData(Qt.ItemDataRole.UserRole, raw_val)
+                        except Exception:
+                            pass
+                    elif key in {"late", "early"}:
+                        raw_val = v
+                        txt_raw = "" if raw_val is None else str(raw_val).strip()
+                        minutes = 0
+                        if txt_raw:
+                            try:
+                                minutes = int(float(txt_raw))
+                            except Exception:
+                                minutes = 0
+
+                        if minutes <= 0:
+                            txt = "0"
+                        else:
+                            symb = late_symbol if key == "late" else early_symbol
+                            txt = str(minutes)
+                            if symb and symb not in txt:
+                                txt = f"{txt} {symb}".strip()
+
+                        item = QTableWidgetItem(txt)
+                        try:
+                            item.setData(Qt.ItemDataRole.UserRole, raw_val)
                         except Exception:
                             pass
                     else:
