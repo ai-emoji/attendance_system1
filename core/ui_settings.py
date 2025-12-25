@@ -31,6 +31,10 @@ DEFAULT_UI_SETTINGS: dict[str, Any] = {
         "font_size": 11,
         # "normal" | "bold"
         "font_weight": "normal",
+        # Header font settings.
+        "header_font_size": 11,
+        # "normal" | "bold"
+        "header_font_weight": "bold",
         # Per-column: "left" | "center" | "right"
         "column_align": {
             "stt": "center",
@@ -44,6 +48,10 @@ DEFAULT_UI_SETTINGS: dict[str, Any] = {
         "font_size": 11,
         # "normal" | "bold"
         "font_weight": "normal",
+        # Header font settings.
+        "header_font_size": 11,
+        # "normal" | "bold"
+        "header_font_weight": "bold",
         # Per-column: "left" | "center" | "right"
         "column_align": {
             "employee_code": "center",
@@ -55,9 +63,77 @@ DEFAULT_UI_SETTINGS: dict[str, Any] = {
         # Per-column visible: true/false (defaults to true when missing)
         "column_visible": {},
     },
+    "schedule_work_table": {
+        # Font settings apply to table body.
+        "font_size": 11,
+        # "normal" | "bold"
+        "font_weight": "normal",
+        # Header font settings.
+        "header_font_size": 11,
+        # "normal" | "bold"
+        "header_font_weight": "bold",
+        # Per-column: "left" | "center" | "right"
+        # Keys are shared across both tables in Schedule Work.
+        "column_align": {
+            "check": "center",
+            "employee_code": "center",
+            "mcc_code": "center",
+            "from_date": "center",
+            "to_date": "center",
+            "full_name": "left",
+            "department_name": "left",
+            "title_name": "left",
+            "schedule_name": "left",
+        },
+        # Per-column: true/false (overrides table font_weight)
+        "column_bold": {},
+    },
+    "declare_work_shift_table": {
+        # Font settings apply to table body.
+        "font_size": 11,
+        # "normal" | "bold"
+        "font_weight": "normal",
+        # Header font settings.
+        "header_font_size": 11,
+        # "normal" | "bold"
+        "header_font_weight": "bold",
+        # Per-column: "left" | "center" | "right"
+        "column_align": {
+            "shift_code": "center",
+            "time_in": "center",
+            "time_out": "center",
+        },
+        # Per-column: true/false (overrides table font_weight)
+        "column_bold": {},
+    },
+    "arrange_schedule_table": {
+        # Font settings apply to table body.
+        "font_size": 11,
+        # "normal" | "bold"
+        "font_weight": "normal",
+        # Header font settings.
+        "header_font_size": 11,
+        # "normal" | "bold"
+        "header_font_weight": "bold",
+        # Per-column: "left" | "center" | "right"
+        "column_align": {
+            "list_schedule_name": "center",
+            "detail_day": "center",
+            "detail_shift_1": "center",
+            "detail_shift_2": "center",
+            "detail_shift_3": "center",
+            "detail_shift_4": "center",
+            "detail_shift_5": "center",
+        },
+        # Per-column: true/false (overrides table font_weight)
+        "column_bold": {},
+    },
     "download_attendance": {
         # Font size for the attendance table body.
         "table_font_size": 11,
+        # Font size/weight for the attendance table header.
+        "table_header_font_size": 11,
+        "table_header_font_weight": "bold",
         # Font size for comboboxes / inputs in TitleBar2.
         "combo_font_size": 11,
         # Font size for calendar popup.
@@ -119,6 +195,8 @@ def save_ui_settings(data: dict[str, Any]) -> None:
 class EmployeeTableUI:
     font_size: int
     font_weight: str
+    header_font_size: int
+    header_font_weight: str
     column_align: dict[str, str]
     column_bold: dict[str, bool]
 
@@ -127,14 +205,48 @@ class EmployeeTableUI:
 class ShiftAttendanceTableUI:
     font_size: int
     font_weight: str
+    header_font_size: int
+    header_font_weight: str
     column_align: dict[str, str]
     column_bold: dict[str, bool]
     column_visible: dict[str, bool]
 
 
 @dataclass
+class ScheduleWorkTableUI:
+    font_size: int
+    font_weight: str
+    header_font_size: int
+    header_font_weight: str
+    column_align: dict[str, str]
+    column_bold: dict[str, bool]
+
+
+@dataclass
+class DeclareWorkShiftTableUI:
+    font_size: int
+    font_weight: str
+    header_font_size: int
+    header_font_weight: str
+    column_align: dict[str, str]
+    column_bold: dict[str, bool]
+
+
+@dataclass
+class ArrangeScheduleTableUI:
+    font_size: int
+    font_weight: str
+    header_font_size: int
+    header_font_weight: str
+    column_align: dict[str, str]
+    column_bold: dict[str, bool]
+
+
+@dataclass
 class DownloadAttendanceUI:
     table_font_size: int
+    table_header_font_size: int
+    table_header_font_weight: str
     combo_font_size: int
     calendar_font_size: int
     input_height: int
@@ -169,6 +281,16 @@ def get_employee_table_ui() -> EmployeeTableUI:
     font_weight = str(t.get("font_weight") or "normal").strip().lower()
     if font_weight not in {"normal", "bold"}:
         font_weight = "normal"
+
+    header_font_size = int(
+        t.get("header_font_size")
+        or DEFAULT_UI_SETTINGS["employee_table"]["header_font_size"]
+    )
+    header_font_size = max(8, min(24, header_font_size))
+
+    header_font_weight = str(t.get("header_font_weight") or "bold").strip().lower()
+    if header_font_weight not in {"normal", "bold"}:
+        header_font_weight = "bold"
 
     col_align = t.get("column_align")
     if not isinstance(col_align, dict):
@@ -205,6 +327,8 @@ def get_employee_table_ui() -> EmployeeTableUI:
     return EmployeeTableUI(
         font_size=font_size,
         font_weight=font_weight,
+        header_font_size=header_font_size,
+        header_font_weight=header_font_weight,
         column_align=column_align,
         column_bold=column_bold,
     )
@@ -214,6 +338,8 @@ def update_employee_table_ui(
     *,
     font_size: int | None = None,
     font_weight: str | None = None,
+    header_font_size: int | None = None,
+    header_font_weight: str | None = None,
     column_key: str | None = None,
     column_align: str | None = None,
     column_bold: str | None = None,
@@ -237,6 +363,19 @@ def update_employee_table_ui(
         fw = str(font_weight).strip().lower()
         if fw in {"normal", "bold"}:
             t["font_weight"] = fw
+
+    if header_font_size is not None:
+        try:
+            hfs = int(header_font_size)
+            hfs = max(8, min(24, hfs))
+            t["header_font_size"] = hfs
+        except Exception:
+            pass
+
+    if header_font_weight is not None:
+        hfw = str(header_font_weight).strip().lower()
+        if hfw in {"normal", "bold"}:
+            t["header_font_weight"] = hfw
 
     if column_key:
         ck = str(column_key).strip()
@@ -287,6 +426,16 @@ def get_shift_attendance_table_ui() -> ShiftAttendanceTableUI:
     font_weight = str(t.get("font_weight") or "normal").strip().lower()
     if font_weight not in {"normal", "bold"}:
         font_weight = "normal"
+
+    header_font_size = int(
+        t.get("header_font_size")
+        or DEFAULT_UI_SETTINGS["shift_attendance_table"]["header_font_size"]
+    )
+    header_font_size = max(8, min(24, header_font_size))
+
+    header_font_weight = str(t.get("header_font_weight") or "bold").strip().lower()
+    if header_font_weight not in {"normal", "bold"}:
+        header_font_weight = "bold"
 
     col_align = t.get("column_align")
     if not isinstance(col_align, dict):
@@ -343,10 +492,430 @@ def get_shift_attendance_table_ui() -> ShiftAttendanceTableUI:
     return ShiftAttendanceTableUI(
         font_size=font_size,
         font_weight=font_weight,
+        header_font_size=header_font_size,
+        header_font_weight=header_font_weight,
         column_align=column_align,
         column_bold=column_bold,
         column_visible=column_visible,
     )
+
+
+def get_schedule_work_table_ui() -> ScheduleWorkTableUI:
+    data = load_ui_settings()
+    t = data.get("schedule_work_table") if isinstance(data, dict) else None
+    if not isinstance(t, dict):
+        t = {}
+
+    font_size = int(
+        t.get("font_size") or DEFAULT_UI_SETTINGS["schedule_work_table"]["font_size"]
+    )
+    font_size = max(8, min(24, font_size))
+
+    font_weight = str(t.get("font_weight") or "normal").strip().lower()
+    if font_weight not in {"normal", "bold"}:
+        font_weight = "normal"
+
+    header_font_size = int(
+        t.get("header_font_size")
+        or DEFAULT_UI_SETTINGS["schedule_work_table"]["header_font_size"]
+    )
+    header_font_size = max(8, min(24, header_font_size))
+
+    header_font_weight = str(t.get("header_font_weight") or "bold").strip().lower()
+    if header_font_weight not in {"normal", "bold"}:
+        header_font_weight = "bold"
+
+    col_align = t.get("column_align")
+    if not isinstance(col_align, dict):
+        col_align = {}
+
+    col_bold = t.get("column_bold")
+    if not isinstance(col_bold, dict):
+        col_bold = {}
+
+    column_align: dict[str, str] = {}
+    for k, v in col_align.items():
+        ks = str(k or "").strip()
+        vs = str(v or "").strip().lower()
+        if not ks:
+            continue
+        if vs not in {"left", "center", "right"}:
+            continue
+        column_align[ks] = vs
+
+    column_bold: dict[str, bool] = {}
+    for k, v in col_bold.items():
+        ks = str(k or "").strip()
+        if not ks:
+            continue
+        column_bold[ks] = bool(v)
+
+    defaults_align = DEFAULT_UI_SETTINGS["schedule_work_table"]["column_align"]
+    for k, v in defaults_align.items():
+        if k not in column_align:
+            column_align[k] = v
+
+    return ScheduleWorkTableUI(
+        font_size=font_size,
+        font_weight=font_weight,
+        header_font_size=header_font_size,
+        header_font_weight=header_font_weight,
+        column_align=column_align,
+        column_bold=column_bold,
+    )
+
+
+def update_schedule_work_table_ui(
+    *,
+    font_size: int | None = None,
+    font_weight: str | None = None,
+    header_font_size: int | None = None,
+    header_font_weight: str | None = None,
+    column_key: str | None = None,
+    column_align: str | None = None,
+    column_bold: str | None = None,
+) -> None:
+    data = load_ui_settings()
+    if not isinstance(data, dict):
+        data = {}
+    t = data.get("schedule_work_table")
+    if not isinstance(t, dict):
+        t = {}
+
+    if font_size is not None:
+        try:
+            fs = int(font_size)
+            fs = max(8, min(24, fs))
+            t["font_size"] = fs
+        except Exception:
+            pass
+
+    if font_weight is not None:
+        fw = str(font_weight).strip().lower()
+        if fw in {"normal", "bold"}:
+            t["font_weight"] = fw
+
+    if header_font_size is not None:
+        try:
+            hfs = int(header_font_size)
+            hfs = max(8, min(24, hfs))
+            t["header_font_size"] = hfs
+        except Exception:
+            pass
+
+    if header_font_weight is not None:
+        hfw = str(header_font_weight).strip().lower()
+        if hfw in {"normal", "bold"}:
+            t["header_font_weight"] = hfw
+
+    if column_key:
+        ck = str(column_key).strip()
+        if ck:
+            if column_align is not None:
+                ca = str(column_align).strip().lower()
+                if ca in {"left", "center", "right"}:
+                    m = t.get("column_align")
+                    if not isinstance(m, dict):
+                        m = {}
+                    m[ck] = ca
+                    t["column_align"] = m
+
+            if column_bold is not None:
+                cb = str(column_bold).strip().lower()
+                m2 = t.get("column_bold")
+                if not isinstance(m2, dict):
+                    m2 = {}
+                if cb in {"inherit", "theo bảng", "theo bang"}:
+                    if ck in m2:
+                        m2.pop(ck, None)
+                elif cb in {"bold", "đậm", "dam"}:
+                    m2[ck] = True
+                elif cb in {"normal", "nhạt", "nhat"}:
+                    m2[ck] = False
+                t["column_bold"] = m2
+
+    data["schedule_work_table"] = t
+    save_ui_settings(data)
+    ui_settings_bus.changed.emit()
+
+
+def get_declare_work_shift_table_ui() -> DeclareWorkShiftTableUI:
+    data = load_ui_settings()
+    t = data.get("declare_work_shift_table") if isinstance(data, dict) else None
+    if not isinstance(t, dict):
+        t = {}
+
+    font_size = int(
+        t.get("font_size")
+        or DEFAULT_UI_SETTINGS["declare_work_shift_table"]["font_size"]
+    )
+    font_size = max(8, min(24, font_size))
+
+    font_weight = str(t.get("font_weight") or "normal").strip().lower()
+    if font_weight not in {"normal", "bold"}:
+        font_weight = "normal"
+
+    header_font_size = int(
+        t.get("header_font_size")
+        or DEFAULT_UI_SETTINGS["declare_work_shift_table"]["header_font_size"]
+    )
+    header_font_size = max(8, min(24, header_font_size))
+
+    header_font_weight = str(t.get("header_font_weight") or "bold").strip().lower()
+    if header_font_weight not in {"normal", "bold"}:
+        header_font_weight = "bold"
+
+    col_align = t.get("column_align")
+    if not isinstance(col_align, dict):
+        col_align = {}
+
+    col_bold = t.get("column_bold")
+    if not isinstance(col_bold, dict):
+        col_bold = {}
+
+    column_align: dict[str, str] = {}
+    for k, v in col_align.items():
+        ks = str(k or "").strip()
+        vs = str(v or "").strip().lower()
+        if not ks:
+            continue
+        if vs not in {"left", "center", "right"}:
+            continue
+        column_align[ks] = vs
+
+    column_bold: dict[str, bool] = {}
+    for k, v in col_bold.items():
+        ks = str(k or "").strip()
+        if not ks:
+            continue
+        column_bold[ks] = bool(v)
+
+    defaults_align = DEFAULT_UI_SETTINGS["declare_work_shift_table"]["column_align"]
+    for k, v in defaults_align.items():
+        if k not in column_align:
+            column_align[k] = v
+
+    return DeclareWorkShiftTableUI(
+        font_size=font_size,
+        font_weight=font_weight,
+        header_font_size=header_font_size,
+        header_font_weight=header_font_weight,
+        column_align=column_align,
+        column_bold=column_bold,
+    )
+
+
+def update_declare_work_shift_table_ui(
+    *,
+    font_size: int | None = None,
+    font_weight: str | None = None,
+    header_font_size: int | None = None,
+    header_font_weight: str | None = None,
+    column_key: str | None = None,
+    column_align: str | None = None,
+    column_bold: str | None = None,
+) -> None:
+    data = load_ui_settings()
+    if not isinstance(data, dict):
+        data = {}
+    t = data.get("declare_work_shift_table")
+    if not isinstance(t, dict):
+        t = {}
+
+    if font_size is not None:
+        try:
+            fs = int(font_size)
+            fs = max(8, min(24, fs))
+            t["font_size"] = fs
+        except Exception:
+            pass
+
+    if font_weight is not None:
+        fw = str(font_weight).strip().lower()
+        if fw in {"normal", "bold"}:
+            t["font_weight"] = fw
+
+    if header_font_size is not None:
+        try:
+            hfs = int(header_font_size)
+            hfs = max(8, min(24, hfs))
+            t["header_font_size"] = hfs
+        except Exception:
+            pass
+
+    if header_font_weight is not None:
+        hfw = str(header_font_weight).strip().lower()
+        if hfw in {"normal", "bold"}:
+            t["header_font_weight"] = hfw
+
+    if column_key:
+        ck = str(column_key).strip()
+        if ck:
+            if column_align is not None:
+                ca = str(column_align).strip().lower()
+                if ca in {"left", "center", "right"}:
+                    m = t.get("column_align")
+                    if not isinstance(m, dict):
+                        m = {}
+                    m[ck] = ca
+                    t["column_align"] = m
+
+            if column_bold is not None:
+                cb = str(column_bold).strip().lower()
+                m2 = t.get("column_bold")
+                if not isinstance(m2, dict):
+                    m2 = {}
+                if cb in {"inherit", "theo bảng", "theo bang"}:
+                    if ck in m2:
+                        m2.pop(ck, None)
+                elif cb in {"bold", "đậm", "dam"}:
+                    m2[ck] = True
+                elif cb in {"normal", "nhạt", "nhat"}:
+                    m2[ck] = False
+                t["column_bold"] = m2
+
+    data["declare_work_shift_table"] = t
+    save_ui_settings(data)
+    ui_settings_bus.changed.emit()
+
+
+def get_arrange_schedule_table_ui() -> ArrangeScheduleTableUI:
+    data = load_ui_settings()
+    t = data.get("arrange_schedule_table") if isinstance(data, dict) else None
+    if not isinstance(t, dict):
+        t = {}
+
+    font_size = int(
+        t.get("font_size") or DEFAULT_UI_SETTINGS["arrange_schedule_table"]["font_size"]
+    )
+    font_size = max(8, min(24, font_size))
+
+    font_weight = str(t.get("font_weight") or "normal").strip().lower()
+    if font_weight not in {"normal", "bold"}:
+        font_weight = "normal"
+
+    header_font_size = int(
+        t.get("header_font_size")
+        or DEFAULT_UI_SETTINGS["arrange_schedule_table"]["header_font_size"]
+    )
+    header_font_size = max(8, min(24, header_font_size))
+
+    header_font_weight = str(t.get("header_font_weight") or "bold").strip().lower()
+    if header_font_weight not in {"normal", "bold"}:
+        header_font_weight = "bold"
+
+    col_align = t.get("column_align")
+    if not isinstance(col_align, dict):
+        col_align = {}
+
+    col_bold = t.get("column_bold")
+    if not isinstance(col_bold, dict):
+        col_bold = {}
+
+    column_align: dict[str, str] = {}
+    for k, v in col_align.items():
+        ks = str(k or "").strip()
+        vs = str(v or "").strip().lower()
+        if not ks:
+            continue
+        if vs not in {"left", "center", "right"}:
+            continue
+        column_align[ks] = vs
+
+    column_bold: dict[str, bool] = {}
+    for k, v in col_bold.items():
+        ks = str(k or "").strip()
+        if not ks:
+            continue
+        column_bold[ks] = bool(v)
+
+    defaults_align = DEFAULT_UI_SETTINGS["arrange_schedule_table"]["column_align"]
+    for k, v in defaults_align.items():
+        if k not in column_align:
+            column_align[k] = v
+
+    return ArrangeScheduleTableUI(
+        font_size=font_size,
+        font_weight=font_weight,
+        header_font_size=header_font_size,
+        header_font_weight=header_font_weight,
+        column_align=column_align,
+        column_bold=column_bold,
+    )
+
+
+def update_arrange_schedule_table_ui(
+    *,
+    font_size: int | None = None,
+    font_weight: str | None = None,
+    header_font_size: int | None = None,
+    header_font_weight: str | None = None,
+    column_key: str | None = None,
+    column_align: str | None = None,
+    column_bold: str | None = None,
+) -> None:
+    data = load_ui_settings()
+    if not isinstance(data, dict):
+        data = {}
+    t = data.get("arrange_schedule_table")
+    if not isinstance(t, dict):
+        t = {}
+
+    if font_size is not None:
+        try:
+            fs = int(font_size)
+            fs = max(8, min(24, fs))
+            t["font_size"] = fs
+        except Exception:
+            pass
+
+    if font_weight is not None:
+        fw = str(font_weight).strip().lower()
+        if fw in {"normal", "bold"}:
+            t["font_weight"] = fw
+
+    if header_font_size is not None:
+        try:
+            hfs = int(header_font_size)
+            hfs = max(8, min(24, hfs))
+            t["header_font_size"] = hfs
+        except Exception:
+            pass
+
+    if header_font_weight is not None:
+        hfw = str(header_font_weight).strip().lower()
+        if hfw in {"normal", "bold"}:
+            t["header_font_weight"] = hfw
+
+    if column_key:
+        ck = str(column_key).strip()
+        if ck:
+            if column_align is not None:
+                ca = str(column_align).strip().lower()
+                if ca in {"left", "center", "right"}:
+                    m = t.get("column_align")
+                    if not isinstance(m, dict):
+                        m = {}
+                    m[ck] = ca
+                    t["column_align"] = m
+
+            if column_bold is not None:
+                cb = str(column_bold).strip().lower()
+                m2 = t.get("column_bold")
+                if not isinstance(m2, dict):
+                    m2 = {}
+                if cb in {"inherit", "theo bảng", "theo bang"}:
+                    if ck in m2:
+                        m2.pop(ck, None)
+                elif cb in {"bold", "đậm", "dam"}:
+                    m2[ck] = True
+                elif cb in {"normal", "nhạt", "nhat"}:
+                    m2[ck] = False
+                t["column_bold"] = m2
+
+    data["arrange_schedule_table"] = t
+    save_ui_settings(data)
+    ui_settings_bus.changed.emit()
 
 
 def get_download_attendance_ui() -> DownloadAttendanceUI:
@@ -360,6 +929,23 @@ def get_download_attendance_ui() -> DownloadAttendanceUI:
         or DEFAULT_UI_SETTINGS["download_attendance"]["table_font_size"]
     )
     table_font_size = max(8, min(24, table_font_size))
+
+    table_header_font_size = int(
+        t.get("table_header_font_size")
+        or DEFAULT_UI_SETTINGS["download_attendance"]["table_header_font_size"]
+    )
+    table_header_font_size = max(8, min(24, table_header_font_size))
+
+    table_header_font_weight = (
+        str(
+            t.get("table_header_font_weight")
+            or DEFAULT_UI_SETTINGS["download_attendance"]["table_header_font_weight"]
+        )
+        .strip()
+        .lower()
+    )
+    if table_header_font_weight not in {"normal", "bold"}:
+        table_header_font_weight = "bold"
 
     combo_font_size = int(
         t.get("combo_font_size")
@@ -473,6 +1059,8 @@ def get_download_attendance_ui() -> DownloadAttendanceUI:
 
     return DownloadAttendanceUI(
         table_font_size=table_font_size,
+        table_header_font_size=table_header_font_size,
+        table_header_font_weight=table_header_font_weight,
         combo_font_size=combo_font_size,
         calendar_font_size=calendar_font_size,
         input_height=input_height,
@@ -494,6 +1082,8 @@ def get_download_attendance_ui() -> DownloadAttendanceUI:
 def update_download_attendance_ui(
     *,
     table_font_size: int | None = None,
+    table_header_font_size: int | None = None,
+    table_header_font_weight: str | None = None,
     combo_font_size: int | None = None,
     calendar_font_size: int | None = None,
     input_height: int | None = None,
@@ -525,6 +1115,19 @@ def update_download_attendance_ui(
             t["table_font_size"] = fs
         except Exception:
             pass
+
+    if table_header_font_size is not None:
+        try:
+            fs = int(table_header_font_size)
+            fs = max(8, min(24, fs))
+            t["table_header_font_size"] = fs
+        except Exception:
+            pass
+
+    if table_header_font_weight is not None:
+        fw = str(table_header_font_weight).strip().lower()
+        if fw in {"normal", "bold"}:
+            t["table_header_font_weight"] = fw
 
     if combo_font_size is not None:
         try:
@@ -668,6 +1271,8 @@ def update_shift_attendance_table_ui(
     *,
     font_size: int | None = None,
     font_weight: str | None = None,
+    header_font_size: int | None = None,
+    header_font_weight: str | None = None,
     column_key: str | None = None,
     column_visible: str | bool | None = None,
     column_align: str | None = None,
@@ -692,6 +1297,19 @@ def update_shift_attendance_table_ui(
         fw = str(font_weight).strip().lower()
         if fw in {"normal", "bold"}:
             t["font_weight"] = fw
+
+    if header_font_size is not None:
+        try:
+            hfs = int(header_font_size)
+            hfs = max(8, min(24, hfs))
+            t["header_font_size"] = hfs
+        except Exception:
+            pass
+
+    if header_font_weight is not None:
+        hfw = str(header_font_weight).strip().lower()
+        if hfw in {"normal", "bold"}:
+            t["header_font_weight"] = hfw
 
     if column_key:
         ck = str(column_key).strip()

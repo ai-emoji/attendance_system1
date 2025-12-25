@@ -4,7 +4,7 @@ Repository layer: SQL thuần cho bảng attendance_symbols.
 
 Quy ước:
 - Lưu theo dạng nhiều dòng (giống absence_symbols)
-- Mỗi dòng có code (C01..C09), description, symbol, is_visible
+- Mỗi dòng có code (C01..C10), description, symbol, is_visible
 - Không validate, không nghiệp vụ
 - Dùng query parameter %s (MySQL)
 """

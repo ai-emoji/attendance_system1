@@ -19,7 +19,9 @@
       "contract1_term": "center",
       "start_date": "center"
     },
-    "column_bold": {}
+    "column_bold": {},
+    "header_font_size": 16,
+    "header_font_weight": "bold"
   },
   "shift_attendance_table": {
     "column_visible": {
@@ -40,9 +42,10 @@
       "full_name": true,
       "hours": true,
       "out_1": true,
-      "in_1": true
+      "in_1": true,
+      "schedule": true
     },
-    "font_size": 11,
+    "font_size": 12,
     "font_weight": "normal",
     "column_align": {
       "employee_code": "center",
@@ -53,13 +56,16 @@
       "start_date": "center",
       "full_name": "center",
       "out_1": "center",
-      "in_1": "center"
+      "in_1": "center",
+      "schedule": "center"
     },
-    "column_bold": {}
+    "column_bold": {},
+    "header_font_size": 16,
+    "header_font_weight": "bold"
   },
   "download_attendance": {
     "table_font_size": 12,
-    "combo_font_size": 13,
+    "combo_font_size": 12,
     "calendar_font_size": 12,
     "column_visible": {
       "attendance_code": true
@@ -75,6 +81,46 @@
     "layout_margin": 10,
     "layout_spacing": 5,
     "clock_icon_size": 18,
-    "date_width": 180
+    "date_width": 180,
+    "table_header_font_size": 16,
+    "table_header_font_weight": "bold"
+  },
+  "schedule_work_table": {
+    "font_size": 12,
+    "font_weight": "normal",
+    "header_font_size": 16,
+    "header_font_weight": "bold",
+    "column_align": {
+      "employee_code": "center",
+      "full_name": "center",
+      "department_name": "center",
+      "title_name": "center",
+      "schedule_name": "center",
+      "check": "center"
+    },
+    "column_bold": {}
+  },
+  "arrange_schedule_table": {
+    "font_size": 12,
+    "font_weight": "normal",
+    "header_font_size": 16,
+    "header_font_weight": "bold",
+    "column_align": {
+      "list_schedule_name": "center",
+      "detail_day": "center"
+    },
+    "column_bold": {
+      "detail_day": true
+    }
+  },
+  "declare_work_shift_table": {
+    "font_size": 12,
+    "font_weight": "normal",
+    "header_font_size": 16,
+    "header_font_weight": "bold",
+    "column_align": {
+      "shift_code": "center"
+    },
+    "column_bold": {}
   }
 }
