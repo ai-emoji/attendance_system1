@@ -114,6 +114,16 @@ class DownloadAttendanceController:
         self._last_progress_phase: str | None = None
         self._last_progress_total: int | None = None
 
+        # Smooth progress animation (0..100 per phase)
+        self._progress_anim_timer: QTimer | None = None
+        self._progress_anim_value: int = 0
+        self._progress_target_value: int = 0
+        self._progress_phase: str | None = None
+        self._progress_base_text: str = ""
+        self._progress_auto_mode: bool = False
+        self._progress_auto_tick: int = 0
+        self._progress_close_when_done: bool = False
+
         # Proxy QObject để slot chạy đúng UI thread
         self._ui_proxy = _UiProxy(self, parent=self._parent_window)
 
@@ -319,7 +329,7 @@ class DownloadAttendanceController:
 
         # Progress dialog
         progress = QProgressDialog(
-            "Đang tải dữ liệu từ máy...", None, 0, 0, self._parent_window
+            "Đang kết nối tới máy...", None, 0, 100, self._parent_window
         )
         progress.setWindowTitle("Tải dữ liệu Máy chấm công")
         progress.setFixedHeight(150)
@@ -332,6 +342,22 @@ class DownloadAttendanceController:
         self._pending_progress = None
         self._last_progress_phase = None
         self._last_progress_total = None
+
+        # Reset smooth progress state
+        self._progress_phase = None
+        self._progress_base_text = "Đang kết nối tới máy..."
+        self._progress_anim_value = 0
+        self._progress_target_value = 0
+        self._progress_auto_mode = True
+        self._progress_auto_tick = 0
+        self._progress_close_when_done = False
+
+        if self._progress_anim_timer is None:
+            self._progress_anim_timer = QTimer(self._parent_window)
+            self._progress_anim_timer.timeout.connect(self._tick_progress_animation)
+            self._progress_anim_timer.setInterval(10)
+        if not self._progress_anim_timer.isActive():
+            self._progress_anim_timer.start()
 
         # Worker thread
         # Giữ reference để tránh worker bị GC (có thể làm app crash/thoát)
@@ -379,40 +405,122 @@ class DownloadAttendanceController:
         phase, done, total, message = self._pending_progress
         self._pending_progress = None
 
-        if phase == "fetch":
-            if self._last_progress_phase != phase:
-                self._progress.setRange(0, 0)
-                self._last_progress_total = None
-            self._progress.setLabelText(message or "Đang tải dữ liệu từ máy...")
-            self._last_progress_phase = phase
+        # Normalize phases: support new phases (connect/download/save/done)
+        # and backward compatible old phase "fetch".
+        norm = str(phase or "").strip().lower()
+        if norm == "fetch":
+            # Old service used "fetch" for connect+download.
+            # If it reports attempts (has total), treat as connect; else as download.
+            norm = "connect" if int(total or 0) > 0 else "download"
+
+        self._set_smooth_progress_state(
+            phase=norm,
+            done=int(done or 0),
+            total=int(total or 0),
+            message=str(message or ""),
+        )
+
+        # Keep legacy trackers for safety (no longer drives UI range)
+        self._last_progress_phase = norm
+        self._last_progress_total = int(total or 0)
+
+    def _set_smooth_progress_state(
+        self, phase: str, done: int, total: int, message: str
+    ) -> None:
+        if self._progress is None:
             return
 
-        if phase == "save":
-            t = int(total or 0)
-            if self._last_progress_phase != phase or self._last_progress_total != t:
-                if t <= 0:
-                    self._progress.setRange(0, 0)
-                else:
-                    self._progress.setRange(0, t)
-                self._last_progress_total = t
-
-            if t > 0:
-                self._progress.setValue(min(int(done), t))
-            else:
+        # Phase change: reset to 0 to run 0..100 for each phase
+        if phase != self._progress_phase:
+            self._progress_phase = phase
+            self._progress_anim_value = 0
+            self._progress_target_value = 0
+            self._progress_auto_tick = 0
+            self._progress_close_when_done = False
+            try:
                 self._progress.setValue(0)
+            except Exception:
+                pass
 
-            self._progress.setLabelText(message or "Đang lưu vào CSDL...")
-            self._last_progress_phase = phase
+        default_msg = {
+            "connect": "Đang kết nối tới máy...",
+            "download": "Đang tải dữ liệu chấm công...",
+            "save": "Đang lưu vào CSDL...",
+            "done": "Hoàn tất",
+        }.get(phase, "Đang xử lý...")
+
+        self._progress_base_text = (message or default_msg).strip()
+
+        # Determine target percent
+        target: int | None = None
+        if phase == "done":
+            target = 100
+        elif total > 0:
+            try:
+                target = int(round((max(0, done) * 100) / max(1, total)))
+            except Exception:
+                target = None
+
+        if target is None:
+            self._progress_auto_mode = True
+        else:
+            self._progress_auto_mode = False
+            self._progress_target_value = max(0, min(100, target))
+
+        # Ensure animation timer is running
+        if (
+            self._progress_anim_timer is not None
+            and not self._progress_anim_timer.isActive()
+        ):
+            self._progress_anim_timer.start()
+
+    def _tick_progress_animation(self) -> None:
+        p = self._progress
+        if p is None:
+            try:
+                if self._progress_anim_timer is not None:
+                    self._progress_anim_timer.stop()
+            except Exception:
+                pass
             return
 
-        if phase == "done":
-            t = max(1, int(total or 1))
-            if self._last_progress_phase != phase or self._last_progress_total != t:
-                self._progress.setRange(0, t)
-                self._last_progress_total = t
-            self._progress.setValue(max(0, int(done)))
-            self._progress.setLabelText(message or "Hoàn tất")
-            self._last_progress_phase = phase
+        # Advance value smoothly
+        if self._progress_auto_mode:
+            self._progress_auto_tick += 1
+            # Fast fill to 95, then slow creep to 99
+            if self._progress_anim_value < 95:
+                self._progress_anim_value += 1
+            elif self._progress_anim_value < 99:
+                if self._progress_auto_tick % 20 == 0:
+                    self._progress_anim_value += 1
+        else:
+            if self._progress_anim_value < self._progress_target_value:
+                self._progress_anim_value += 1
+            elif self._progress_anim_value > self._progress_target_value:
+                self._progress_anim_value = self._progress_target_value
+
+        self._progress_anim_value = max(0, min(100, self._progress_anim_value))
+
+        try:
+            p.setValue(self._progress_anim_value)
+        except Exception:
+            return
+
+        # Label with percent
+        base = (self._progress_base_text or "").strip()
+        if base:
+            p.setLabelText(f"{base}\n{self._progress_anim_value}%")
+        else:
+            p.setLabelText(f"{self._progress_anim_value}%")
+
+        # Close once we reach 100 after success
+        if self._progress_close_when_done and self._progress_anim_value >= 100:
+            self._progress_close_when_done = False
+            self._progress = None
+            try:
+                QTimer.singleShot(0, p.close)
+            except Exception:
+                pass
 
     def _on_worker_finished_ui(self, ok: bool, msg: str, _count: int) -> None:
         if (
@@ -427,7 +535,21 @@ class DownloadAttendanceController:
         self._last_progress_phase = None
         self._last_progress_total = None
 
-        if self._progress is not None:
+        if self._progress is not None and ok:
+            # Let the progress animate to 100% before closing.
+            self._set_smooth_progress_state("done", 1, 1, "Hoàn tất")
+            self._progress_target_value = 100
+            self._progress_auto_mode = False
+            self._progress_close_when_done = True
+            # Hard-close fallback (in case timer stops)
+            try:
+                QTimer.singleShot(
+                    1500, lambda: self._progress and self._progress.close()
+                )
+            except Exception:
+                pass
+
+        elif self._progress is not None and not ok:
             p = self._progress
             self._progress = None
             try:

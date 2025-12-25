@@ -118,7 +118,52 @@ class ArrangeScheduleRepository:
             if cursor is not None:
                 cursor.close()
 
-    def replace_schedule_day_shifts(self, schedule_id: int, day_key: str, shift_ids: list[int | None]) -> None:
+    def get_in_out_mode_by_schedule_names(
+        self, schedule_names: list[str]
+    ) -> dict[str, str | None]:
+        names: list[str] = []
+        for n in schedule_names or []:
+            s = str(n or "").strip()
+            if s:
+                names.append(s)
+        names = list(dict.fromkeys(names))
+        if not names:
+            return {}
+
+        placeholders = ",".join(["%s"] * len(names))
+        query = (
+            "SELECT schedule_name, in_out_mode "
+            "FROM hr_attendance.arrange_schedules "
+            f"WHERE schedule_name IN ({placeholders})"
+        )
+
+        cursor = None
+        try:
+            with Database.connect() as conn:
+                cursor = Database.get_cursor(conn, dictionary=True)
+                cursor.execute(query, tuple(names))
+                rows = list(cursor.fetchall() or [])
+                out: dict[str, str | None] = {}
+                for r in rows:
+                    try:
+                        key = str(r.get("schedule_name") or "").strip()
+                        if not key:
+                            continue
+                        v = r.get("in_out_mode")
+                        out[key] = str(v) if v is not None else None
+                    except Exception:
+                        continue
+                return out
+        except Exception:
+            logger.exception("Lỗi get_in_out_mode_by_schedule_names")
+            raise
+        finally:
+            if cursor is not None:
+                cursor.close()
+
+    def replace_schedule_day_shifts(
+        self, schedule_id: int, day_key: str, shift_ids: list[int | None]
+    ) -> None:
         """Ghi đè danh sách ca theo ngày (xóa hết rồi insert lại theo position)."""
 
         day_key = str(day_key or "").strip()
@@ -140,10 +185,12 @@ class ArrangeScheduleRepository:
                 cursor = Database.get_cursor(conn, dictionary=False)
                 cursor.execute(del_query, (int(schedule_id), day_key))
                 pos = 1
-                for sid in (shift_ids or []):
+                for sid in shift_ids or []:
                     if sid is None:
                         continue
-                    cursor.execute(ins_query, (int(schedule_id), day_key, int(pos), int(sid)))
+                    cursor.execute(
+                        ins_query, (int(schedule_id), day_key, int(pos), int(sid))
+                    )
                     pos += 1
                 conn.commit()
         except Exception:

@@ -31,7 +31,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.resource import (
+    COLOR_BORDER,
+    COLOR_BUTTON_CANCEL,
+    COLOR_BUTTON_CANCEL_HOVER,
+    COLOR_BUTTON_PRIMARY,
+    COLOR_BUTTON_PRIMARY_HOVER,
     CONTENT_FONT,
+    COLOR_TEXT_LIGHT,
     FONT_WEIGHT_NORMAL,
     FONT_WEIGHT_SEMIBOLD,
     UI_FONT,
@@ -147,6 +153,20 @@ class ShiftAttendanceSettingsDialog(QDialog):
         self.btn_visible.setFont(font_normal)
         self.btn_visible.setCheckable(True)
         self.btn_visible.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_visible.setStyleSheet(
+            "\n".join(
+                [
+                    f"QPushButton {{ border: 1px solid {COLOR_BORDER}; border-radius: 6px; padding: 6px 10px; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:hover {{ color: {COLOR_TEXT_LIGHT}; }}",
+                    # Checked = show
+                    f"QPushButton:checked {{ background: {COLOR_BUTTON_PRIMARY}; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:checked:hover {{ background: {COLOR_BUTTON_PRIMARY_HOVER}; color: {COLOR_TEXT_LIGHT}; }}",
+                    # Unchecked = hide
+                    f"QPushButton:!checked {{ background: {COLOR_BUTTON_CANCEL}; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:!checked:hover {{ background: {COLOR_BUTTON_CANCEL_HOVER}; color: {COLOR_TEXT_LIGHT}; }}",
+                ]
+            )
+        )
 
         self.cbo_align = QComboBox(group)
         self.cbo_align.setFont(font_normal)

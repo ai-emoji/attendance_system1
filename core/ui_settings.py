@@ -42,6 +42,8 @@ DEFAULT_UI_SETTINGS: dict[str, Any] = {
         },
         # Per-column: true/false (overrides table font_weight)
         "column_bold": {},
+        # Per-column visible: true/false (defaults to true when missing)
+        "column_visible": {},
     },
     "shift_attendance_table": {
         # Font settings apply to table body.
@@ -199,6 +201,7 @@ class EmployeeTableUI:
     header_font_weight: str
     column_align: dict[str, str]
     column_bold: dict[str, bool]
+    column_visible: dict[str, bool]
 
 
 @dataclass
@@ -300,6 +303,10 @@ def get_employee_table_ui() -> EmployeeTableUI:
     if not isinstance(col_bold, dict):
         col_bold = {}
 
+    col_visible = t.get("column_visible")
+    if not isinstance(col_visible, dict):
+        col_visible = {}
+
     # Normalize
     column_align: dict[str, str] = {}
     for k, v in col_align.items():
@@ -318,6 +325,13 @@ def get_employee_table_ui() -> EmployeeTableUI:
             continue
         column_bold[ks] = bool(v)
 
+    column_visible: dict[str, bool] = {}
+    for k, v in col_visible.items():
+        ks = str(k or "").strip()
+        if not ks:
+            continue
+        column_visible[ks] = bool(v)
+
     # Merge defaults for aligns
     defaults_align = DEFAULT_UI_SETTINGS["employee_table"]["column_align"]
     for k, v in defaults_align.items():
@@ -331,6 +345,7 @@ def get_employee_table_ui() -> EmployeeTableUI:
         header_font_weight=header_font_weight,
         column_align=column_align,
         column_bold=column_bold,
+        column_visible=column_visible,
     )
 
 
@@ -343,6 +358,7 @@ def update_employee_table_ui(
     column_key: str | None = None,
     column_align: str | None = None,
     column_bold: str | None = None,
+    column_visible: bool | None = None,
 ) -> None:
     data = load_ui_settings()
     if not isinstance(data, dict):
@@ -403,6 +419,13 @@ def update_employee_table_ui(
                 elif cb in {"normal", "nhạt", "nhat"}:
                     m2[ck] = False
                 t["column_bold"] = m2
+
+            if column_visible is not None:
+                m3 = t.get("column_visible")
+                if not isinstance(m3, dict):
+                    m3 = {}
+                m3[ck] = bool(column_visible)
+                t["column_visible"] = m3
 
     data["employee_table"] = t
     save_ui_settings(data)

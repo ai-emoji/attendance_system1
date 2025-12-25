@@ -17,11 +17,19 @@
       "degree": "center",
       "major": "center",
       "contract1_term": "center",
-      "start_date": "center"
+      "start_date": "center",
+      "schedule": "left",
+      "full_name": "left"
     },
     "column_bold": {},
     "header_font_size": 16,
-    "header_font_weight": "bold"
+    "header_font_weight": "bold",
+    "column_visible": {
+      "schedule": false,
+      "full_name": true,
+      "stt": true,
+      "start_date": true
+    }
   },
   "shift_attendance_table": {
     "column_visible": {

@@ -222,7 +222,7 @@ class DownloadAttendanceService:
         """Tải dữ liệu từ máy và lưu DB.
 
         progress_cb signature (optional): (phase: str, done: int, total: int, message: str) -> None
-        phase in: "fetch", "save", "done"
+        phase in: "connect", "download", "save", "done" (backward compatible: may emit "fetch")
         """
 
         if not device_id:
@@ -250,9 +250,6 @@ class DownloadAttendanceService:
                 0,
             )
 
-        if progress_cb:
-            progress_cb("fetch", 0, 0, "Đang tải dữ liệu từ máy...")
-
         if importlib.util.find_spec("zk") is None:
             return (
                 False,
@@ -279,16 +276,24 @@ class DownloadAttendanceService:
                 timeout = base_timeout + (attempt - 1) * 10
                 if progress_cb:
                     progress_cb(
-                        "fetch",
+                        "connect",
                         attempt - 1,
                         max_attempts,
-                        f"Đang kết nối và tải dữ liệu từ máy... (lần {attempt}/{max_attempts})",
+                        f"Đang kết nối tới máy... (lần {attempt}/{max_attempts})",
                     )
 
                 try:
                     zk = ZK(ip, port=port, timeout=timeout, password=password)
                     conn = zk.connect()
                     try:
+                        if progress_cb:
+                            progress_cb(
+                                "connect",
+                                max_attempts,
+                                max_attempts,
+                                "Kết nối thành công.",
+                            )
+
                         # Fetch user list (best-effort) to map user_id -> name on device
                         user_name_by_id: dict[str, str] = {}
                         try:
@@ -339,7 +344,23 @@ class DownloadAttendanceService:
                                 f"Thông tin thiết bị: {info}",
                             )
 
+                        if progress_cb:
+                            progress_cb(
+                                "download",
+                                0,
+                                0,
+                                "Đang tải dữ liệu chấm công...",
+                            )
+
                         logs = conn.get_attendance() or []
+
+                        if progress_cb:
+                            progress_cb(
+                                "download",
+                                1,
+                                1,
+                                "Tải dữ liệu thành công.",
+                            )
                         # Attach mapping to outer scope by returning via closure var
                         return ([(user_name_by_id, logs)], None)
                     finally:

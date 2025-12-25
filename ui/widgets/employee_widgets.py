@@ -477,40 +477,40 @@ class _EmployeeTableModel(QAbstractTableModel):
     # Each tuple: (key, header_label, min_width_px)
     COLUMNS: list[tuple[str, str, int]] = [
         ("id", "ID", 0),
-        ("stt", "STT", 70),
-        ("employee_code", "MÃ NV", 110),
+        ("stt", "STT", 0),
+        ("employee_code", "MÃ NV", 0),
         ("mcc_code", "Mã CC", 0),
-        ("full_name", "HỌ VÀ TÊN", 200),
-        ("schedule", "Lịch làm việc", 160),
+        ("full_name", "HỌ VÀ TÊN", 0),
+        ("schedule", "Lịch làm việc", 0),
         ("name_on_mcc", "Tên trên MCC", 0),
-        ("start_date", "Ngày vào làm", 120),
-        ("title_name", "Chức Vụ", 140),
-        ("department_name", "Phòng Ban", 160),
-        ("date_of_birth", "Ngày Sinh", 120),
-        ("gender", "Giới tính", 110),
-        ("national_id", "CCCD/CMND", 140),
-        ("id_issue_date", "Ngày Cấp", 120),
-        ("id_issue_place", "Nơi Cấp", 150),
-        ("address", "Địa chỉ", 180),
-        ("phone", "Số điện thoại", 120),
-        ("insurance_no", "Số Bảo Hiểm", 140),
-        ("tax_code", "Mã số Thuế TNCN", 160),
-        ("degree", "Bằng cấp", 140),
-        ("major", "Chuyên ngành", 140),
-        ("contract1_term", "HĐLĐ (ký lần 1)", 150),
-        ("contract1_no", "Số HĐLĐ (lần 1)", 150),
-        ("contract1_sign_date", "Ngày ký (lần 1)", 140),
-        ("contract1_expire_date", "Ngày hết hạn (lần 1)", 160),
-        ("contract2_indefinite", "HĐLĐ ký không thời hạn", 170),
-        ("contract2_no", "Số HĐLĐ (không thời hạn)", 190),
-        ("contract2_sign_date", "Ngày ký (không thời hạn)", 190),
-        ("children_count", "Số con", 90),
-        ("child_dob_1", "Ngày sinh con 1", 140),
-        ("child_dob_2", "Ngày sinh con 2", 140),
-        ("child_dob_3", "Ngày sinh con 3", 140),
-        ("child_dob_4", "Ngày sinh con 4", 140),
-        ("employment_status", "Hiện trạng", 140),
-        ("note", "Ghi chú", 180),
+        ("start_date", "Ngày vào làm", 0),
+        ("title_name", "Chức Vụ", 0),
+        ("department_name", "Phòng Ban", 0),
+        ("date_of_birth", "Ngày Sinh", 0),
+        ("gender", "Giới tính", 0),
+        ("national_id", "CCCD/CMND", 0),
+        ("id_issue_date", "Ngày Cấp", 0),
+        ("id_issue_place", "Nơi Cấp", 0),
+        ("address", "Địa chỉ", 0),
+        ("phone", "Số điện thoại", 0),
+        ("insurance_no", "Số Bảo Hiểm", 0),
+        ("tax_code", "Mã số Thuế TNCN", 0),
+        ("degree", "Bằng cấp", 0),
+        ("major", "Chuyên ngành", 0),
+        ("contract1_term", "HĐLĐ (ký lần 1)", 0),
+        ("contract1_no", "Số HĐLĐ (lần 1)", 0),
+        ("contract1_sign_date", "Ngày ký (lần 1)", 0),
+        ("contract1_expire_date", "Ngày hết hạn (lần 1)", 0),
+        ("contract2_indefinite", "HĐLĐ ký không thời hạn", 0),
+        ("contract2_no", "Số HĐLĐ (không thời hạn)", 0),
+        ("contract2_sign_date", "Ngày ký (không thời hạn)", 0),
+        ("children_count", "Số con", 0),
+        ("child_dob_1", "Ngày sinh con 1", 0),
+        ("child_dob_2", "Ngày sinh con 2", 0),
+        ("child_dob_3", "Ngày sinh con 3", 0),
+        ("child_dob_4", "Ngày sinh con 4", 0),
+        ("employment_status", "Hiện trạng", 0),
+        ("note", "Ghi chú", 0),
     ]
 
     def __init__(self, parent: QObject | None = None) -> None:  # type: ignore[name-defined]
@@ -1028,6 +1028,7 @@ class EmployeeTable(QTableView):
         super().__init__(parent)
 
         self._always_hidden_keys: set[str] = {"id", "mcc_code", "name_on_mcc"}
+        self._saved_column_widths: dict[str, int] = {}
 
         self._model = _EmployeeTableModel(self)
         self._proxy = _EmployeeFilterProxy(self)
@@ -1105,6 +1106,8 @@ class EmployeeTable(QTableView):
 
     def _min_width_for_column(self, col: int) -> int:
         try:
+            if self.isColumnHidden(int(col)):
+                return 0
             key = str(self._model.COLUMNS[int(col)][0] or "").strip()
             if key in self._always_hidden_keys:
                 return 0
@@ -1235,6 +1238,74 @@ class EmployeeTable(QTableView):
             ),
             column_bold=ui.column_bold,
         )
+
+        # Per-column visibility
+        try:
+            visible_map = ui.column_visible or {}
+        except Exception:
+            visible_map = {}
+
+        for i, (k, _label, _minw) in enumerate(self._model.COLUMNS):
+            key = str(k or "").strip()
+            if not key:
+                continue
+            if key in self._always_hidden_keys:
+                try:
+                    self.setColumnHidden(int(i), True)
+                    self.setColumnWidth(int(i), 0)
+                except Exception:
+                    pass
+                continue
+
+            is_visible = bool(visible_map.get(key, True))
+            if not is_visible:
+                # Save width before collapsing, then set hidden + width=0.
+                try:
+                    cur_w = int(self.columnWidth(int(i)))
+                except Exception:
+                    cur_w = 0
+                if cur_w > 0:
+                    self._saved_column_widths[key] = cur_w
+                else:
+                    min_w = self._min_width_for_column(int(i))
+                    if min_w > 0:
+                        self._saved_column_widths[key] = int(min_w)
+
+                try:
+                    self.setColumnHidden(int(i), True)
+                    self.setColumnWidth(int(i), 0)
+                except Exception:
+                    pass
+                continue
+
+            # Visible
+            try:
+                was_hidden = bool(self.isColumnHidden(int(i)))
+            except Exception:
+                was_hidden = False
+
+            try:
+                self.setColumnHidden(int(i), False)
+            except Exception:
+                pass
+
+            # Restore width when coming back from hidden/collapsed.
+            try:
+                cur_w2 = int(self.columnWidth(int(i)))
+            except Exception:
+                cur_w2 = 0
+            if was_hidden or cur_w2 <= 1:
+                desired = int(self._saved_column_widths.get(key, 0) or 0)
+                min_w2 = self._min_width_for_column(int(i))
+                if desired <= 0:
+                    desired = int(min_w2 or 0)
+                if min_w2 > 0:
+                    desired = max(int(min_w2), int(desired))
+                if desired > 0:
+                    try:
+                        self.setColumnWidth(int(i), int(desired))
+                    except Exception:
+                        pass
 
         # Trigger refresh
         try:

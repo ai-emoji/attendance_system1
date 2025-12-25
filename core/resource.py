@@ -231,6 +231,14 @@ def read_stylesheet(style_file: str) -> str:
 # 8️⃣ ICON SVG PATHS
 # ============================================================================
 
+# Icon Algin text
+ICON_ALGIN_LEFT = "assets/images/align_left.svg"
+ICON_ALGIN_CENTER = "assets/images/align_center.svg"
+ICON_ALGIN_RIGHT = "assets/images/align_right.svg"
+ICON_BOLD = "assets/images/bold.svg"
+ICON_ITALIC = "assets/images/italic.svg"
+ICON_UNDERLINE = "assets/images/under_line.svg"
+
 # Icon App (Main window)
 ICON_APP = "assets/icons/app.ico"
 APP_ICO = ICON_APP

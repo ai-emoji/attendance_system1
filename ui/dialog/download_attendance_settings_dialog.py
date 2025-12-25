@@ -32,7 +32,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.resource import (
+    COLOR_BORDER,
+    COLOR_BUTTON_CANCEL,
+    COLOR_BUTTON_CANCEL_HOVER,
+    COLOR_BUTTON_PRIMARY,
+    COLOR_BUTTON_PRIMARY_HOVER,
     CONTENT_FONT,
+    COLOR_TEXT_LIGHT,
     FONT_WEIGHT_NORMAL,
     FONT_WEIGHT_SEMIBOLD,
     UI_FONT,
@@ -193,17 +199,40 @@ class DownloadAttendanceSettingsDialog(QDialog):
         for key, label in columns:
             self.cbo_column.addItem(label, key)
 
-        self.cbo_visible = QComboBox(group)
-        self.cbo_visible.setFont(font_normal)
-        self.cbo_visible.addItem("Hiển thị", "show")
-        self.cbo_visible.addItem("Ẩn", "hide")
+        # Visible toggle (emoji) - consistent with other screens
+        self.btn_visible = QPushButton(group)
+        self.btn_visible.setFont(font_normal)
+        self.btn_visible.setCheckable(True)
+        self.btn_visible.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_visible.setStyleSheet(
+            "\n".join(
+                [
+                    f"QPushButton {{ border: 1px solid {COLOR_BORDER}; border-radius: 6px; padding: 6px 10px; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:hover {{ color: {COLOR_TEXT_LIGHT}; }}",
+                    # Checked = show
+                    f"QPushButton:checked {{ background: {COLOR_BUTTON_PRIMARY}; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:checked:hover {{ background: {COLOR_BUTTON_PRIMARY_HOVER}; color: {COLOR_TEXT_LIGHT}; }}",
+                    # Unchecked = hide
+                    f"QPushButton:!checked {{ background: {COLOR_BUTTON_CANCEL}; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:!checked:hover {{ background: {COLOR_BUTTON_CANCEL_HOVER}; color: {COLOR_TEXT_LIGHT}; }}",
+                ]
+            )
+        )
+
+        def _set_visible_button(is_visible: bool) -> None:
+            self.btn_visible.blockSignals(True)
+            try:
+                self.btn_visible.setChecked(bool(is_visible))
+                self.btn_visible.setText("✅ Hiển thị" if bool(is_visible) else "❌ Ẩn")
+            finally:
+                self.btn_visible.blockSignals(False)
+
+        self.btn_visible.toggled.connect(lambda v: _set_visible_button(bool(v)))
 
         def _refresh_column_defaults() -> None:
             key = str(self.cbo_column.currentData() or "").strip()
             vis = bool((self._ui.column_visible or {}).get(key, True))
-            self.cbo_visible.setCurrentIndex(
-                self.cbo_visible.findData("show" if vis else "hide")
-            )
+            _set_visible_button(bool(vis))
 
         self.cbo_column.currentIndexChanged.connect(
             lambda _i: _refresh_column_defaults()
@@ -228,7 +257,7 @@ class DownloadAttendanceSettingsDialog(QDialog):
         form.addRow("Margin (trái/phải)", self.spin_layout_margin)
         form.addRow("Khoảng cách (spacing)", self.spin_layout_spacing)
         form.addRow("Chọn cột", self.cbo_column)
-        form.addRow("Hiển thị cột", self.cbo_visible)
+        form.addRow("Hiển thị cột", self.btn_visible)
 
         self.label_status = QLabel("", self)
         self.label_status.setFont(font_normal)
@@ -282,7 +311,7 @@ class DownloadAttendanceSettingsDialog(QDialog):
             layout_spacing = int(self.spin_layout_spacing.value())
 
             col_key = str(self.cbo_column.currentData() or "").strip()
-            visible = str(self.cbo_visible.currentData() or "show").strip()
+            visible = "show" if bool(self.btn_visible.isChecked()) else "hide"
 
             update_download_attendance_ui(
                 table_font_size=table_fs,

@@ -53,6 +53,26 @@ class ArrangeScheduleService:
     def __init__(self, repo: ArrangeScheduleRepository | None = None) -> None:
         self._repo = repo or ArrangeScheduleRepository()
 
+    def get_in_out_mode_map(self, schedule_names: list[str]) -> dict[str, str | None]:
+        """Return schedule_name -> normalized in_out_mode.
+
+        Normalization:
+        - old values (in/out) => device
+        - allowed: None/auto/device/first_last
+        - invalid => None
+        """
+
+        raw = self._repo.get_in_out_mode_by_schedule_names(schedule_names or [])
+        out: dict[str, str | None] = {}
+        for k, v in (raw or {}).items():
+            mode = v or None
+            if mode in ("in", "out"):
+                mode = "device"
+            if mode not in (None, "auto", "device", "first_last"):
+                mode = None
+            out[str(k or "").strip()] = mode
+        return out
+
     def list_schedules(self) -> list[tuple[int, str]]:
         rows = self._repo.list_schedules()
         result: list[tuple[int, str]] = []

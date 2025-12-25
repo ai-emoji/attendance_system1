@@ -14,9 +14,20 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtWidgets import QFileDialog, QDialog
 from PySide6.QtWidgets import QTableWidgetItem
 
+from export.export_details import export_shift_attendance_details_xlsx
+from export.export_grid_list import CompanyInfo, export_shift_attendance_grid_xlsx
+from services.arrange_schedule_services import ArrangeScheduleService
+from services.company_services import CompanyService
+from services.export_grid_list_services import (
+    ExportGridListService,
+    ExportGridListSettings,
+)
 from services.shift_attendance_services import ShiftAttendanceService
+from ui.dialog.export_grid_list_dialog import ExportGridListDialog, NoteStyle
+from ui.dialog.title_dialog import MessageDialog
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +59,14 @@ class ShiftAttendanceController:
         self._content1.search_changed.connect(self.refresh)
         if self._content2 is not None:
             self._content1.view_clicked.connect(self.on_view_clicked)
+            try:
+                self._content2.export_grid_clicked.connect(self.on_export_grid_clicked)
+            except Exception:
+                pass
+            try:
+                self._content2.detail_clicked.connect(self.on_export_detail_clicked)
+            except Exception:
+                pass
 
         # Initial
         self._load_departments()
@@ -63,6 +82,660 @@ class ShiftAttendanceController:
                 department_id=None,
                 title_id=None,
             )
+
+    def on_export_grid_clicked(self) -> None:
+        if self._content2 is None:
+            return
+
+        # If any row is checked (✅) in the table, export only checked rows.
+        checked_rows: list[int] = []
+        try:
+            t = self._content2.table
+            for r in range(int(t.rowCount())):
+                it = t.item(int(r), 0)
+                if it is None:
+                    continue
+                if str(it.text() or "").strip() == "✅":
+                    checked_rows.append(int(r))
+        except Exception:
+            checked_rows = []
+
+        # Load defaults: DB settings (if any) + company table fallback
+        default_company = CompanyInfo()
+        try:
+            data = CompanyService().load_company()
+            if data is not None:
+                default_company = CompanyInfo(
+                    name=str(data.company_name or "").strip(),
+                    address=str(data.company_address or "").strip(),
+                    phone=str(data.company_phone or "").strip(),
+                )
+        except Exception:
+            default_company = CompanyInfo()
+
+        export_service = ExportGridListService()
+        saved = None
+        try:
+            saved = export_service.load()
+        except Exception:
+            saved = None
+
+        dialog = ExportGridListDialog(
+            self._parent_window, export_button_text="Xuất lưới"
+        )
+        dialog.set_values(
+            company_name=(
+                saved.company_name
+                if saved and saved.company_name
+                else default_company.name
+            ),
+            company_address=(
+                saved.company_address
+                if saved and saved.company_address
+                else default_company.address
+            ),
+            company_phone=(
+                saved.company_phone
+                if saved and saved.company_phone
+                else default_company.phone
+            ),
+            creator=(saved.creator if saved else ""),
+            note_text=(saved.note_text if saved else ""),
+            company_name_style=(
+                NoteStyle(
+                    font_size=(saved.company_name_font_size if saved else 13),
+                    bold=(saved.company_name_bold if saved else False),
+                    italic=(saved.company_name_italic if saved else False),
+                    underline=(saved.company_name_underline if saved else False),
+                    align=(saved.company_name_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            company_address_style=(
+                NoteStyle(
+                    font_size=(saved.company_address_font_size if saved else 13),
+                    bold=(saved.company_address_bold if saved else False),
+                    italic=(saved.company_address_italic if saved else False),
+                    underline=(saved.company_address_underline if saved else False),
+                    align=(saved.company_address_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            company_phone_style=(
+                NoteStyle(
+                    font_size=(saved.company_phone_font_size if saved else 13),
+                    bold=(saved.company_phone_bold if saved else False),
+                    italic=(saved.company_phone_italic if saved else False),
+                    underline=(saved.company_phone_underline if saved else False),
+                    align=(saved.company_phone_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            creator_style=(
+                NoteStyle(
+                    font_size=(saved.creator_font_size if saved else 13),
+                    bold=(saved.creator_bold if saved else False),
+                    italic=(saved.creator_italic if saved else False),
+                    underline=(saved.creator_underline if saved else False),
+                    align=(saved.creator_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            note_style=(
+                NoteStyle(
+                    font_size=(saved.note_font_size if saved else 13),
+                    bold=(saved.note_bold if saved else False),
+                    italic=(saved.note_italic if saved else False),
+                    underline=(saved.note_underline if saved else False),
+                    align=(saved.note_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+        )
+
+        def _save_settings() -> tuple[bool, str]:
+            vals = dialog.get_values()
+            note_st = dialog.get_note_style()
+            creator_st = dialog.get_creator_style()
+            cn_st = dialog.get_company_name_style()
+            ca_st = dialog.get_company_address_style()
+            cp_st = dialog.get_company_phone_style()
+            settings = ExportGridListSettings(
+                company_name=vals.get("company_name", ""),
+                company_address=vals.get("company_address", ""),
+                company_phone=vals.get("company_phone", ""),
+                company_name_font_size=int(cn_st.font_size),
+                company_name_bold=bool(cn_st.bold),
+                company_name_italic=bool(cn_st.italic),
+                company_name_underline=bool(cn_st.underline),
+                company_name_align=str(cn_st.align or "left"),
+                company_address_font_size=int(ca_st.font_size),
+                company_address_bold=bool(ca_st.bold),
+                company_address_italic=bool(ca_st.italic),
+                company_address_underline=bool(ca_st.underline),
+                company_address_align=str(ca_st.align or "left"),
+                company_phone_font_size=int(cp_st.font_size),
+                company_phone_bold=bool(cp_st.bold),
+                company_phone_italic=bool(cp_st.italic),
+                company_phone_underline=bool(cp_st.underline),
+                company_phone_align=str(cp_st.align or "left"),
+                creator=vals.get("creator", ""),
+                creator_font_size=int(creator_st.font_size),
+                creator_bold=bool(creator_st.bold),
+                creator_italic=bool(creator_st.italic),
+                creator_underline=bool(creator_st.underline),
+                creator_align=str(creator_st.align or "left"),
+                note_text=vals.get("note_text", ""),
+                note_font_size=int(note_st.font_size),
+                note_bold=bool(note_st.bold),
+                note_italic=bool(note_st.italic),
+                note_underline=bool(note_st.underline),
+                note_align=str(note_st.align or "left"),
+            )
+            # Preserve detail note when saving from Xuất lưới
+            if saved is not None:
+                settings = ExportGridListSettings(
+                    company_name=settings.company_name,
+                    company_address=settings.company_address,
+                    company_phone=settings.company_phone,
+                    company_name_font_size=settings.company_name_font_size,
+                    company_name_bold=settings.company_name_bold,
+                    company_name_italic=settings.company_name_italic,
+                    company_name_underline=settings.company_name_underline,
+                    company_name_align=settings.company_name_align,
+                    company_address_font_size=settings.company_address_font_size,
+                    company_address_bold=settings.company_address_bold,
+                    company_address_italic=settings.company_address_italic,
+                    company_address_underline=settings.company_address_underline,
+                    company_address_align=settings.company_address_align,
+                    company_phone_font_size=settings.company_phone_font_size,
+                    company_phone_bold=settings.company_phone_bold,
+                    company_phone_italic=settings.company_phone_italic,
+                    company_phone_underline=settings.company_phone_underline,
+                    company_phone_align=settings.company_phone_align,
+                    creator=settings.creator,
+                    creator_font_size=settings.creator_font_size,
+                    creator_bold=settings.creator_bold,
+                    creator_italic=settings.creator_italic,
+                    creator_underline=settings.creator_underline,
+                    creator_align=settings.creator_align,
+                    note_text=settings.note_text,
+                    note_font_size=settings.note_font_size,
+                    note_bold=settings.note_bold,
+                    note_italic=settings.note_italic,
+                    note_underline=settings.note_underline,
+                    note_align=settings.note_align,
+                    detail_note_text=str(saved.detail_note_text or ""),
+                    detail_note_font_size=int(saved.detail_note_font_size),
+                    detail_note_bold=bool(saved.detail_note_bold),
+                    detail_note_italic=bool(saved.detail_note_italic),
+                    detail_note_underline=bool(saved.detail_note_underline),
+                    detail_note_align=str(saved.detail_note_align or "left"),
+                )
+            ok, msg = export_service.save(settings, context="xuất lưới")
+            dialog.set_status(msg, ok=ok)
+            return ok, msg
+
+        def _export_clicked() -> None:
+            ok, _ = _save_settings()
+            if not ok:
+                return
+            dialog.mark_export()
+            dialog.accept()
+
+        try:
+            dialog.btn_save.clicked.connect(lambda: _save_settings())
+            dialog.btn_export.clicked.connect(_export_clicked)
+        except Exception:
+            pass
+
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.did_export():
+            return
+
+        vals = dialog.get_values()
+        note_style = dialog.get_note_style()
+        creator_style = dialog.get_creator_style()
+        cn_style = dialog.get_company_name_style()
+        ca_style = dialog.get_company_address_style()
+        cp_style = dialog.get_company_phone_style()
+
+        # Date range text
+        try:
+            from_qdate: QDate = self._content1.date_from.date()
+            to_qdate: QDate = self._content1.date_to.date()
+            from_txt = from_qdate.toString("dd/MM/yyyy")
+            to_txt = to_qdate.toString("dd/MM/yyyy")
+            from_file = from_qdate.toString("ddMMyyyy")
+            to_file = to_qdate.toString("ddMMyyyy")
+        except Exception:
+            from_txt = ""
+            to_txt = ""
+            from_file = ""
+            to_file = ""
+
+        # Choose output file
+        if from_file and to_file:
+            default_name = f"Xuất Lưới_{from_file}_{to_file}.xlsx"
+        else:
+            default_name = "Xuất Lưới.xlsx"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self._parent_window,
+            "Xuất lưới chấm công",
+            default_name,
+            "Excel (*.xlsx)",
+        )
+        if not file_path:
+            return
+
+        company = CompanyInfo(
+            name=str(vals.get("company_name", "") or "").strip(),
+            address=str(vals.get("company_address", "") or "").strip(),
+            phone=str(vals.get("company_phone", "") or "").strip(),
+        )
+
+        # Auto-hide unnecessary in/out columns based on Arrange Schedule in_out_mode.
+        # Conservative rules to avoid losing data:
+        # - If any schedule has mode 'device' OR unknown => keep all columns.
+        # - If all schedules are 'first_last' => hide Vào/Ra 2-3.
+        # - If any schedule is 'auto' (and none device/unknown) => hide pairs beyond max actually-used pair.
+        force_exclude_headers: set[str] | None = None
+        try:
+            t = self._content2.table
+            row_count = int(t.rowCount())
+            rows_to_export = checked_rows if checked_rows else list(range(row_count))
+
+            def _find_col(header_text: str) -> int | None:
+                target = str(header_text or "").strip().lower()
+                for c in range(int(t.columnCount())):
+                    hi = t.horizontalHeaderItem(int(c))
+                    ht = "" if hi is None else str(hi.text() or "")
+                    if ht.strip().lower() == target:
+                        return int(c)
+                return None
+
+            col_schedule = _find_col("Lịch làm việc")
+            col_in2 = _find_col("Vào 2")
+            col_out2 = _find_col("Ra 2")
+            col_in3 = _find_col("Vào 3")
+            col_out3 = _find_col("Ra 3")
+
+            schedule_names: list[str] = []
+            max_pair_used = 1
+
+            for r in rows_to_export:
+                rr = int(r)
+                if rr < 0 or rr >= row_count:
+                    continue
+
+                if col_schedule is not None:
+                    it = t.item(rr, int(col_schedule))
+                    s = "" if it is None else str(it.text() or "").strip()
+                    if s:
+                        schedule_names.append(s)
+
+                def _has_text(col: int | None) -> bool:
+                    if col is None:
+                        return False
+                    it2 = t.item(rr, int(col))
+                    return bool(str("" if it2 is None else it2.text() or "").strip())
+
+                if _has_text(col_in3) or _has_text(col_out3):
+                    max_pair_used = max(max_pair_used, 3)
+                if _has_text(col_in2) or _has_text(col_out2):
+                    max_pair_used = max(max_pair_used, 2)
+
+            schedule_names = list(dict.fromkeys([s for s in schedule_names if s]))
+
+            if schedule_names:
+                mode_map = ArrangeScheduleService().get_in_out_mode_map(schedule_names)
+                modes = [mode_map.get(n) for n in schedule_names]
+
+                has_unknown = any(m is None for m in modes)
+                has_device = any(m == "device" for m in modes)
+                has_auto = any(m == "auto" for m in modes)
+
+                if not has_unknown and not has_device:
+                    if has_auto:
+                        if max_pair_used <= 1:
+                            force_exclude_headers = {"Vào 2", "Ra 2", "Vào 3", "Ra 3"}
+                        elif max_pair_used == 2:
+                            force_exclude_headers = {"Vào 3", "Ra 3"}
+                    else:
+                        # All first_last
+                        force_exclude_headers = {"Vào 2", "Ra 2", "Vào 3", "Ra 3"}
+        except Exception:
+            force_exclude_headers = None
+
+        ok, msg = export_shift_attendance_grid_xlsx(
+            file_path=file_path,
+            company=company,
+            from_date_text=from_txt,
+            to_date_text=to_txt,
+            table=self._content2.table,
+            row_indexes=(checked_rows if checked_rows else None),
+            force_exclude_headers=force_exclude_headers,
+            company_name_style={
+                "font_size": int(cn_style.font_size),
+                "bold": bool(cn_style.bold),
+                "italic": bool(cn_style.italic),
+                "underline": bool(cn_style.underline),
+                "align": str(cn_style.align or "left"),
+            },
+            company_address_style={
+                "font_size": int(ca_style.font_size),
+                "bold": bool(ca_style.bold),
+                "italic": bool(ca_style.italic),
+                "underline": bool(ca_style.underline),
+                "align": str(ca_style.align or "left"),
+            },
+            company_phone_style={
+                "font_size": int(cp_style.font_size),
+                "bold": bool(cp_style.bold),
+                "italic": bool(cp_style.italic),
+                "underline": bool(cp_style.underline),
+                "align": str(cp_style.align or "left"),
+            },
+            creator=str(vals.get("creator", "") or "").strip(),
+            creator_style={
+                "font_size": int(creator_style.font_size),
+                "bold": bool(creator_style.bold),
+                "italic": bool(creator_style.italic),
+                "underline": bool(creator_style.underline),
+                "align": str(creator_style.align or "left"),
+            },
+            note_text=str(vals.get("note_text", "") or ""),
+            note_style={
+                "font_size": int(note_style.font_size),
+                "bold": bool(note_style.bold),
+                "italic": bool(note_style.italic),
+                "underline": bool(note_style.underline),
+                "align": str(note_style.align or "left"),
+            },
+        )
+        MessageDialog.info(
+            self._parent_window,
+            "Xuất lưới chấm công",
+            msg,
+        )
+
+    def on_export_detail_clicked(self) -> None:
+        if self._content2 is None:
+            return
+
+        # If any row is checked (✅) in the table, export only checked rows.
+        checked_rows: list[int] = []
+        try:
+            t = self._content2.table
+            for r in range(int(t.rowCount())):
+                it = t.item(int(r), 0)
+                if it is None:
+                    continue
+                if str(it.text() or "").strip() == "✅":
+                    checked_rows.append(int(r))
+        except Exception:
+            checked_rows = []
+
+        # Load defaults: DB settings (if any) + company table fallback
+        default_company = CompanyInfo()
+        try:
+            data = CompanyService().load_company()
+            if data is not None:
+                default_company = CompanyInfo(
+                    name=str(data.company_name or "").strip(),
+                    address=str(data.company_address or "").strip(),
+                    phone=str(data.company_phone or "").strip(),
+                )
+        except Exception:
+            default_company = CompanyInfo()
+
+        export_service = ExportGridListService()
+        saved = None
+        try:
+            saved = export_service.load()
+        except Exception:
+            saved = None
+
+        dialog = ExportGridListDialog(
+            self._parent_window, export_button_text="Xuất chi tiết"
+        )
+        dialog.set_values(
+            company_name=(
+                saved.company_name
+                if saved and saved.company_name
+                else default_company.name
+            ),
+            company_address=(
+                saved.company_address
+                if saved and saved.company_address
+                else default_company.address
+            ),
+            company_phone=(
+                saved.company_phone
+                if saved and saved.company_phone
+                else default_company.phone
+            ),
+            creator=(saved.creator if saved else ""),
+            note_text=(saved.detail_note_text if saved else ""),
+            company_name_style=(
+                NoteStyle(
+                    font_size=(saved.company_name_font_size if saved else 13),
+                    bold=(saved.company_name_bold if saved else False),
+                    italic=(saved.company_name_italic if saved else False),
+                    underline=(saved.company_name_underline if saved else False),
+                    align=(saved.company_name_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            company_address_style=(
+                NoteStyle(
+                    font_size=(saved.company_address_font_size if saved else 13),
+                    bold=(saved.company_address_bold if saved else False),
+                    italic=(saved.company_address_italic if saved else False),
+                    underline=(saved.company_address_underline if saved else False),
+                    align=(saved.company_address_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            company_phone_style=(
+                NoteStyle(
+                    font_size=(saved.company_phone_font_size if saved else 13),
+                    bold=(saved.company_phone_bold if saved else False),
+                    italic=(saved.company_phone_italic if saved else False),
+                    underline=(saved.company_phone_underline if saved else False),
+                    align=(saved.company_phone_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            creator_style=(
+                NoteStyle(
+                    font_size=(saved.creator_font_size if saved else 13),
+                    bold=(saved.creator_bold if saved else False),
+                    italic=(saved.creator_italic if saved else False),
+                    underline=(saved.creator_underline if saved else False),
+                    align=(saved.creator_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+            note_style=(
+                NoteStyle(
+                    font_size=(saved.detail_note_font_size if saved else 13),
+                    bold=(saved.detail_note_bold if saved else False),
+                    italic=(saved.detail_note_italic if saved else False),
+                    underline=(saved.detail_note_underline if saved else False),
+                    align=(saved.detail_note_align if saved else "left"),
+                )
+                if saved is not None
+                else NoteStyle()
+            ),
+        )
+
+        def _save_settings() -> tuple[bool, str]:
+            vals = dialog.get_values()
+            note_st = dialog.get_note_style()
+            creator_st = dialog.get_creator_style()
+            cn_st = dialog.get_company_name_style()
+            ca_st = dialog.get_company_address_style()
+            cp_st = dialog.get_company_phone_style()
+            settings = ExportGridListSettings(
+                company_name=vals.get("company_name", ""),
+                company_address=vals.get("company_address", ""),
+                company_phone=vals.get("company_phone", ""),
+                company_name_font_size=int(cn_st.font_size),
+                company_name_bold=bool(cn_st.bold),
+                company_name_italic=bool(cn_st.italic),
+                company_name_underline=bool(cn_st.underline),
+                company_name_align=str(cn_st.align or "left"),
+                company_address_font_size=int(ca_st.font_size),
+                company_address_bold=bool(ca_st.bold),
+                company_address_italic=bool(ca_st.italic),
+                company_address_underline=bool(ca_st.underline),
+                company_address_align=str(ca_st.align or "left"),
+                company_phone_font_size=int(cp_st.font_size),
+                company_phone_bold=bool(cp_st.bold),
+                company_phone_italic=bool(cp_st.italic),
+                company_phone_underline=bool(cp_st.underline),
+                company_phone_align=str(cp_st.align or "left"),
+                creator=vals.get("creator", ""),
+                creator_font_size=int(creator_st.font_size),
+                creator_bold=bool(creator_st.bold),
+                creator_italic=bool(creator_st.italic),
+                creator_underline=bool(creator_st.underline),
+                creator_align=str(creator_st.align or "left"),
+                # Preserve grid note when saving from Xuất chi tiết
+                note_text=(saved.note_text if saved else ""),
+                note_font_size=(saved.note_font_size if saved else 13),
+                note_bold=(saved.note_bold if saved else False),
+                note_italic=(saved.note_italic if saved else False),
+                note_underline=(saved.note_underline if saved else False),
+                note_align=(saved.note_align if saved else "left"),
+                detail_note_text=vals.get("note_text", ""),
+                detail_note_font_size=int(note_st.font_size),
+                detail_note_bold=bool(note_st.bold),
+                detail_note_italic=bool(note_st.italic),
+                detail_note_underline=bool(note_st.underline),
+                detail_note_align=str(note_st.align or "left"),
+            )
+            ok, msg = export_service.save(settings, context="xuất chi tiết")
+            dialog.set_status(msg, ok=ok)
+            return ok, msg
+
+        def _export_clicked() -> None:
+            ok, _ = _save_settings()
+            if not ok:
+                return
+            dialog.mark_export()
+            dialog.accept()
+
+        try:
+            dialog.btn_save.clicked.connect(lambda: _save_settings())
+            dialog.btn_export.clicked.connect(_export_clicked)
+        except Exception:
+            pass
+
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.did_export():
+            return
+
+        vals = dialog.get_values()
+        note_style = dialog.get_note_style()
+        creator_style = dialog.get_creator_style()
+        cn_style = dialog.get_company_name_style()
+        ca_style = dialog.get_company_address_style()
+        cp_style = dialog.get_company_phone_style()
+
+        # Date range text
+        try:
+            from_qdate: QDate = self._content1.date_from.date()
+            to_qdate: QDate = self._content1.date_to.date()
+            from_txt = from_qdate.toString("dd/MM/yyyy")
+            to_txt = to_qdate.toString("dd/MM/yyyy")
+            from_file = from_qdate.toString("ddMMyyyy")
+            to_file = to_qdate.toString("ddMMyyyy")
+        except Exception:
+            from_txt = ""
+            to_txt = ""
+            from_file = ""
+            to_file = ""
+
+        # Choose output file
+        if from_file and to_file:
+            default_name = f"Xuất Chi Tiết_{from_file}_{to_file}.xlsx"
+        else:
+            default_name = "Xuất Chi Tiết.xlsx"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self._parent_window,
+            "Xuất chi tiết chấm công",
+            default_name,
+            "Excel (*.xlsx)",
+        )
+        if not file_path:
+            return
+
+        company = CompanyInfo(
+            name=str(vals.get("company_name", "") or "").strip(),
+            address=str(vals.get("company_address", "") or "").strip(),
+            phone=str(vals.get("company_phone", "") or "").strip(),
+        )
+
+        ok, msg = export_shift_attendance_details_xlsx(
+            file_path=file_path,
+            company=company,
+            from_date_text=from_txt,
+            to_date_text=to_txt,
+            table=self._content2.table,
+            row_indexes=(checked_rows if checked_rows else None),
+            company_name_style={
+                "font_size": int(cn_style.font_size),
+                "bold": bool(cn_style.bold),
+                "italic": bool(cn_style.italic),
+                "underline": bool(cn_style.underline),
+                "align": str(cn_style.align or "left"),
+            },
+            company_address_style={
+                "font_size": int(ca_style.font_size),
+                "bold": bool(ca_style.bold),
+                "italic": bool(ca_style.italic),
+                "underline": bool(ca_style.underline),
+                "align": str(ca_style.align or "left"),
+            },
+            company_phone_style={
+                "font_size": int(cp_style.font_size),
+                "bold": bool(cp_style.bold),
+                "italic": bool(cp_style.italic),
+                "underline": bool(cp_style.underline),
+                "align": str(cp_style.align or "left"),
+            },
+            creator=str(vals.get("creator", "") or "").strip(),
+            creator_style={
+                "font_size": int(creator_style.font_size),
+                "bold": bool(creator_style.bold),
+                "italic": bool(creator_style.italic),
+                "underline": bool(creator_style.underline),
+                "align": str(creator_style.align or "left"),
+            },
+            note_text=str(vals.get("note_text", "") or ""),
+            note_style={
+                "font_size": int(note_style.font_size),
+                "bold": bool(note_style.bold),
+                "italic": bool(note_style.italic),
+                "underline": bool(note_style.underline),
+                "align": str(note_style.align or "left"),
+            },
+        )
+
+        MessageDialog.info(
+            self._parent_window,
+            "Xuất chi tiết chấm công",
+            msg,
+        )
 
     def _current_date_range(self) -> tuple[str | None, str | None]:
         try:

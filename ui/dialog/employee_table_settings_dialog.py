@@ -26,7 +26,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.resource import (
+    COLOR_BORDER,
+    COLOR_BUTTON_CANCEL,
+    COLOR_BUTTON_CANCEL_HOVER,
+    COLOR_BUTTON_PRIMARY,
+    COLOR_BUTTON_PRIMARY_HOVER,
     CONTENT_FONT,
+    COLOR_TEXT_LIGHT,
     FONT_WEIGHT_NORMAL,
     FONT_WEIGHT_SEMIBOLD,
     UI_FONT,
@@ -104,6 +110,7 @@ class EmployeeTableSettingsDialog(QDialog):
             ("stt", "STT"),
             ("employee_code", "MÃ NV"),
             ("full_name", "HỌ VÀ TÊN"),
+            ("schedule", "Lịch làm việc"),
             ("start_date", "Ngày vào làm"),
             ("title_name", "Chức Vụ"),
             ("department_name", "Phòng Ban"),
@@ -148,6 +155,38 @@ class EmployeeTableSettingsDialog(QDialog):
         self.cbo_column_weight.addItem("Nhạt", "normal")
         self.cbo_column_weight.addItem("Đậm", "bold")
 
+        # Visible toggle (emoji) - consistent with other screens
+        self.btn_column_visible = QPushButton(group)
+        self.btn_column_visible.setFont(font_normal)
+        self.btn_column_visible.setCheckable(True)
+        self.btn_column_visible.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_column_visible.setStyleSheet(
+            "\n".join(
+                [
+                    f"QPushButton {{ border: 1px solid {COLOR_BORDER}; border-radius: 6px; padding: 6px 10px; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:hover {{ color: {COLOR_TEXT_LIGHT}; }}",
+                    # Checked = show
+                    f"QPushButton:checked {{ background: {COLOR_BUTTON_PRIMARY}; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:checked:hover {{ background: {COLOR_BUTTON_PRIMARY_HOVER}; color: {COLOR_TEXT_LIGHT}; }}",
+                    # Unchecked = hide
+                    f"QPushButton:!checked {{ background: {COLOR_BUTTON_CANCEL}; color: {COLOR_TEXT_LIGHT}; }}",
+                    f"QPushButton:!checked:hover {{ background: {COLOR_BUTTON_CANCEL_HOVER}; color: {COLOR_TEXT_LIGHT}; }}",
+                ]
+            )
+        )
+
+        def _set_visible_button(is_visible: bool) -> None:
+            self.btn_column_visible.blockSignals(True)
+            try:
+                self.btn_column_visible.setChecked(bool(is_visible))
+                self.btn_column_visible.setText(
+                    "✅ Hiển thị" if bool(is_visible) else "❌ Ẩn"
+                )
+            finally:
+                self.btn_column_visible.blockSignals(False)
+
+        self.btn_column_visible.toggled.connect(lambda v: _set_visible_button(bool(v)))
+
         def _refresh_column_defaults() -> None:
             key = str(self.cbo_column.currentData() or "").strip()
             a = (self._ui.column_align or {}).get(key, "left")
@@ -165,6 +204,9 @@ class EmployeeTableSettingsDialog(QDialog):
                     self.cbo_column_weight.findData("inherit")
                 )
 
+            visible = bool((self._ui.column_visible or {}).get(key, True))
+            _set_visible_button(bool(visible))
+
         self.cbo_column.currentIndexChanged.connect(
             lambda _i: _refresh_column_defaults()
         )
@@ -175,6 +217,7 @@ class EmployeeTableSettingsDialog(QDialog):
         form.addRow("Kích thước chữ (header)", self.spin_header_font_size)
         form.addRow("Chữ đậm/nhạt (header)", self.cbo_header_weight)
         form.addRow("Chọn cột", self.cbo_column)
+        form.addRow("Hiển thị cột", self.btn_column_visible)
         form.addRow("Căn lề cột", self.cbo_align)
         form.addRow("Đậm/nhạt cột", self.cbo_column_weight)
 
@@ -226,6 +269,7 @@ class EmployeeTableSettingsDialog(QDialog):
             hfs = int(self.spin_header_font_size.value())
             hfw = str(self.cbo_header_weight.currentData() or "bold").strip()
             col_key = str(self.cbo_column.currentData() or "").strip()
+            col_visible = bool(self.btn_column_visible.isChecked())
             align = str(self.cbo_align.currentData() or "left").strip()
             col_weight = str(self.cbo_column_weight.currentData() or "inherit").strip()
 
@@ -235,6 +279,7 @@ class EmployeeTableSettingsDialog(QDialog):
                 header_font_size=hfs,
                 header_font_weight=hfw,
                 column_key=col_key,
+                column_visible=col_visible,
                 column_align=align,
                 column_bold=col_weight,
             )

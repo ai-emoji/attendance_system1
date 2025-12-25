@@ -21,7 +21,7 @@ Ghi chú:
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, QLocale, QSize, Qt, Signal
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QColor, QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCalendarWidget,
@@ -45,6 +45,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtWidgets import QHeaderView
 
 from core.resource import (
+    COLOR_BUTTON_SAVE,
+    COLOR_BUTTON_SAVE_HOVER,
     ICON_CHECK,
     ICON_CLOCK,
     BG_TITLE_1_HEIGHT,
@@ -85,6 +87,24 @@ from ui.controllers.import_shift_attendance_controllers import (
 
 
 _BTN_HOVER_BG = COLOR_BUTTON_PRIMARY_HOVER
+
+
+def _apply_check_item_style(item, *, checked: bool) -> None:
+    """Style ✅/❌ cells to be readable (white text)."""
+    try:
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    except Exception:
+        pass
+
+    try:
+        if bool(checked):
+            item.setForeground(QColor(COLOR_TEXT_LIGHT))
+            item.setBackground(QColor(COLOR_BUTTON_PRIMARY))
+        else:
+            item.setForeground(QColor(COLOR_TEXT_LIGHT))
+            item.setBackground(QColor(COLOR_BUTTON_SAVE))
+    except Exception:
+        pass
 
 
 class TitleBar1(QWidget):
@@ -558,8 +578,9 @@ class MainContent1(QWidget):
             if item is None:
                 return
             cur = str(item.text() or "").strip()
-            item.setText("✅" if cur != "✅" else "❌")
-            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            new_checked = cur != "✅"
+            item.setText("✅" if new_checked else "❌")
+            _apply_check_item_style(item, checked=bool(new_checked))
         except Exception:
             pass
 
@@ -676,6 +697,11 @@ class MainContent1(QWidget):
                 item = self.table.item(int(row), int(col))
                 if item is None:
                     continue
+
+                if str(key) == "__check":
+                    _apply_check_item_style(
+                        item, checked=(str(item.text() or "").strip() == "✅")
+                    )
 
                 if key in align_map:
                     try:
@@ -861,7 +887,7 @@ class MainContent2(QWidget):
                 75,  # 60 + 15
                 75,  # 60 + 15
                 75,  # 60 + 15
-                85,  # 70 + 15
+                130,  # 115 + 15
             ],
         )
         try:
@@ -975,8 +1001,9 @@ class MainContent2(QWidget):
             if item is None:
                 return
             cur = str(item.text() or "").strip()
-            item.setText("✅" if cur != "✅" else "❌")
-            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            new_checked = cur != "✅"
+            item.setText("✅" if new_checked else "❌")
+            _apply_check_item_style(item, checked=bool(new_checked))
         except Exception:
             pass
 
@@ -1056,6 +1083,11 @@ class MainContent2(QWidget):
                 item = self.table.item(int(row), int(col))
                 if item is None:
                     continue
+
+                if str(key) == "__check":
+                    _apply_check_item_style(
+                        item, checked=(str(item.text() or "").strip() == "✅")
+                    )
 
                 if key in align_map:
                     try:
@@ -1154,9 +1186,11 @@ class _ColumnsButtonsDialog(QDialog):
                 [
                     f"QDialog {{ background: {MAIN_CONTENT_BG_COLOR}; }}",
                     f"QLabel {{ color: {COLOR_TEXT_PRIMARY}; }}",
-                    f"QPushButton#col_btn {{ background: #FFFFFF; border: 1px solid {COLOR_BORDER}; border-radius: 6px; color: {COLOR_TEXT_PRIMARY}; }}",
-                    f"QPushButton#col_btn:hover {{ background: {HOVER_ROW_BG_COLOR}; }}",
-                    f"QPushButton#col_btn[col_active='true'] {{ background: {HOVER_ROW_BG_COLOR}; border: 1px solid {COLOR_BUTTON_PRIMARY}; }}",
+                    f"QPushButton#col_btn {{ border: 1px solid {COLOR_BORDER}; border-radius: 6px; color: {COLOR_TEXT_LIGHT}; text-align: left; padding-left: 10px; }}",
+                    f"QPushButton#col_btn[col_active='true'] {{ background: {COLOR_BUTTON_PRIMARY}; }}",
+                    f"QPushButton#col_btn[col_active='true']:hover {{ background: {COLOR_BUTTON_PRIMARY_HOVER}; }}",
+                    f"QPushButton#col_btn[col_active='false'] {{ background: {COLOR_BUTTON_SAVE}; }}",
+                    f"QPushButton#col_btn[col_active='false']:hover {{ background: {COLOR_BUTTON_SAVE_HOVER}; }}",
                 ]
             )
         )
@@ -1205,12 +1239,19 @@ class _ColumnsButtonsDialog(QDialog):
             btn.setFont(_mk_font_normal())
             btn.setCheckable(False)
 
+            btn.setProperty("col_label", str(label))
+
             visible = bool((ui.column_visible or {}).get(str(key), True))
             btn.setProperty("col_active", bool(visible))
+            btn.setText(f"{'✅' if bool(visible) else '❌'} {str(label)}")
 
             def _on_clicked(*_a, _key: str = str(key), _btn: QPushButton = btn) -> None:
                 new_visible = not bool(_btn.property("col_active"))
                 _btn.setProperty("col_active", bool(new_visible))
+                base_label = str(_btn.property("col_label") or "").strip()
+                _btn.setText(
+                    f"{'✅' if bool(new_visible) else '❌'} {base_label if base_label else str(_key)}"
+                )
                 try:
                     _btn.style().unpolish(_btn)
                     _btn.style().polish(_btn)
