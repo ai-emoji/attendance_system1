@@ -28,6 +28,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover
+    Image = None  # type: ignore
+
 
 def _add_data_arg(src: Path, dest_relative: str) -> str:
     """Tạo tham số --add-data cho PyInstaller.
@@ -36,6 +41,49 @@ def _add_data_arg(src: Path, dest_relative: str) -> str:
     """
     sep = os.pathsep  # ';' on Windows
     return f"{src}{sep}{dest_relative}"
+
+
+def _ensure_valid_ico(icon_path: Path) -> Path | None:
+    """Return a valid .ico path for PyInstaller.
+
+    In this repo, assets/icons/app.ico is actually a PNG (misnamed).
+    If needed and Pillow is available, convert it to assets/icons/app_converted.ico.
+    """
+    if not icon_path.exists():
+        return None
+
+    try:
+        head = icon_path.read_bytes()[:8]
+    except Exception:
+        return None
+
+    is_png = head.startswith(b"\x89PNG\r\n\x1a\n")
+    if not is_png:
+        return icon_path
+
+    converted = icon_path.with_name("app_converted.ico")
+    if converted.exists() and converted.stat().st_mtime >= icon_path.stat().st_mtime:
+        return converted
+
+    if Image is None:
+        print(
+            "⚠️ Icon file is PNG but named .ico, and Pillow is not available to convert it:\n"
+            f"- {icon_path}\n"
+            "Gợi ý: cài Pillow (pip install pillow) hoặc cung cấp file .ico chuẩn."
+        )
+        return None
+
+    try:
+        img = Image.open(icon_path)
+        img.save(
+            converted,
+            format="ICO",
+            sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)],
+        )
+        return converted
+    except Exception as exc:
+        print(f"⚠️ Không thể convert icon sang .ico: {exc}")
+        return None
 
 
 def main() -> int:
@@ -108,9 +156,15 @@ def main() -> int:
 
     py_args += ["--onedir" if not args.onefile else "--onefile"]
 
+    # PyInstaller 6 uses a contents directory (default: _internal) for onedir builds.
+    # User requirement: place runtime/libs directly next to the exe.
+    if not args.onefile:
+        py_args += ["--contents-directory", "."]
+
     # Icon exe
-    if icon_ico.exists():
-        py_args += ["--icon", str(icon_ico)]
+    icon_for_exe = _ensure_valid_ico(icon_ico)
+    if icon_for_exe is not None:
+        py_args += ["--icon", str(icon_for_exe)]
 
     # Ensure relative imports work
     py_args += ["--paths", str(project_root)]

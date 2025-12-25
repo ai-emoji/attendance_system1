@@ -76,7 +76,7 @@ TABLE_FONT = 14
 # 2️⃣1️⃣ THÔNG TIN ỨNG DỤNG
 # ============================================================================
 APP_INFO = "Thông tin"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.2"
 
 # Font weight
 FONT_WEIGHT_NORMAL = 400

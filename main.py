@@ -6,11 +6,22 @@ Khởi tạo ứng dụng và cửa sổ chính.
 import sys
 import logging
 import faulthandler
+import os
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from core.resource import resource_path
 from ui.main_window import MainWindow
+
+
+def _user_data_dir() -> Path:
+    """Return a writable per-user data directory (Windows-friendly)."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "attendance"
+
+    # Fallback: best-effort path that works on Windows too
+    return Path.home() / "AppData" / "Local" / "attendance"
 
 
 def setup_logging() -> None:
@@ -24,7 +35,7 @@ def setup_logging() -> None:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    log_path = Path(resource_path("log/debug.log"))
+    log_path = _user_data_dir() / "log" / "debug.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     root_logger = logging.getLogger()
@@ -54,7 +65,7 @@ def main() -> None:
 
     # Dump trace nếu gặp crash native/segfault (hữu ích khi app "out" không traceback)
     try:
-        dump_path = Path(resource_path("log/faulthandler.log"))
+        dump_path = _user_data_dir() / "log" / "faulthandler.log"
         dump_path.parent.mkdir(parents=True, exist_ok=True)
         with dump_path.open("a", encoding="utf-8") as f:
             faulthandler.enable(file=f, all_threads=True)

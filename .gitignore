@@ -72,9 +72,3 @@ yarn-error.log*
 # Git
 # =========================
 *.orig
-
-__pycache__/
-*.pyc
-.venv/
-log/
-*.log

@@ -313,7 +313,7 @@ class MainWindow(QMainWindow):
     def _init_ui(self) -> None:
         """Khởi tạo giao diện người dùng."""
         # Set tiêu đề cửa sổ
-        self.setWindowTitle("Ứng Dụng Desktop")
+        self.setWindowTitle("Phần mềm chấm công Tam Niên")
 
         # Gán icon app (load qua resource_path)
         set_window_icon(self)

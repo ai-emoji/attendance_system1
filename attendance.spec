@@ -33,7 +33,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='myapp',
+    name='attendance',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -44,7 +44,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['E:\\attendance_system1\\assets\\icons\\app.ico'],
+    icon=['E:\\attendance_system1\\assets\\icons\\app_converted.ico'],
+    contents_directory='.',
 )
 coll = COLLECT(
     exe,
@@ -53,5 +54,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='myapp',
+    name='attendance',
 )
