@@ -942,7 +942,9 @@ class MainContent2(QWidget):
                 "TC1",
                 "TC2",
                 "TC3",
+                "Tổng",
                 "Lịch làm việc",
+                "Ca",
             ],
             stretch_last=False,
             horizontal_scroll=Qt.ScrollBarPolicy.ScrollBarAsNeeded,
@@ -970,11 +972,23 @@ class MainContent2(QWidget):
                 75,  # 60 + 15
                 75,  # 60 + 15
                 75,  # 60 + 15
+                60,  # Min W=60
                 130,  # 115 + 15
+                95,  # 80 + 15
             ],
         )
         try:
             self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        except Exception:
+            pass
+
+        # Cột "Tổng" yêu cầu Min W=60
+        try:
+            total_col = self._col_index("total")
+            if total_col >= 0:
+                h2 = self.table.horizontalHeader()
+                h2.setSectionResizeMode(int(total_col), QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(int(total_col), 60)
         except Exception:
             pass
 
@@ -1253,14 +1267,16 @@ MainContent2._COLUMNS = [
     ("early", "Sớm"),
     ("hours", "Giờ"),
     ("work", "Công"),
-    ("leave", "KH"),
+    ("kh", "KH"),
     ("hours_plus", "Giờ +"),
     ("work_plus", "Công +"),
     ("leave_plus", "KH +"),
     ("tc1", "TC1"),
     ("tc2", "TC2"),
     ("tc3", "TC3"),
+    ("total", "Tổng"),
     ("schedule", "Lịch làm việc"),
+    ("shift_code", "Ca"),
 ]
 
 

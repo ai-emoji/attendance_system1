@@ -306,7 +306,10 @@
         tc1 VARCHAR(50) NULL COMMENT 'Ký hiệu chấm công 1 (TC1)',
         tc2 VARCHAR(50) NULL COMMENT 'Ký hiệu chấm công 2 (TC2)',
         tc3 VARCHAR(50) NULL COMMENT 'Ký hiệu chấm công 3 (TC3)',
+        total DECIMAL(10,2) NULL COMMENT 'Tổng (thường = Công + Công +)',
         schedule VARCHAR(255) NULL COMMENT 'Tên lịch/ca áp dụng (chuỗi hiển thị)',
+
+        shift_code VARCHAR(255) NULL COMMENT 'Mã ca đã xác định theo lịch/ca (có thể ghép: HC+CH)',
 
         -- Nếu = 1: dữ liệu đã được chỉnh bằng "Import dữ liệu chấm công" -> không tự động ghi đè khi sync
         import_locked TINYINT(1) NOT NULL DEFAULT 0,
@@ -320,6 +323,42 @@
         KEY idx_attendance_audit_employee_date (employee_id, work_date),
         KEY idx_attendance_audit_employee_code_date (employee_code, work_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+    -- Add column total if missing (migrate for existing DB)
+    SET @col_audit_total := (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = 'hr_attendance'
+          AND TABLE_NAME = 'attendance_audit'
+          AND COLUMN_NAME = 'total'
+    );
+    SET @sql_add_audit_total := IF(
+        @col_audit_total = 0,
+        'ALTER TABLE hr_attendance.attendance_audit ADD COLUMN total DECIMAL(10,2) NULL AFTER tc3',
+        'SELECT \'attendance_audit.total already exists\''
+    );
+    PREPARE stmt_add_audit_total FROM @sql_add_audit_total;
+    EXECUTE stmt_add_audit_total;
+    DEALLOCATE PREPARE stmt_add_audit_total;
+
+
+    -- Add column shift_code if missing (migrate for existing DB)
+    SET @col_audit_shift_code := (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = 'hr_attendance'
+          AND TABLE_NAME = 'attendance_audit'
+          AND COLUMN_NAME = 'shift_code'
+    );
+    SET @sql_add_audit_shift_code := IF(
+        @col_audit_shift_code = 0,
+        'ALTER TABLE hr_attendance.attendance_audit ADD COLUMN shift_code VARCHAR(255) NULL AFTER schedule',
+        'SELECT \'attendance_audit.shift_code already exists\''
+    );
+    PREPARE stmt_add_audit_shift_code FROM @sql_add_audit_shift_code;
+    EXECUTE stmt_add_audit_shift_code;
+    DEALLOCATE PREPARE stmt_add_audit_shift_code;
 
 
     -- Khai báo Ca làm việc

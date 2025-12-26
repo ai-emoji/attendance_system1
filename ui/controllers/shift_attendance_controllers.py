@@ -27,10 +27,10 @@ from services.export_grid_list_services import (
 )
 from services.attendance_symbol_services import AttendanceSymbolService
 from services.shift_attendance_services import ShiftAttendanceService
-from core.attendance_symbol_bus import attendance_symbol_bus
 from ui.controllers.shift_attendance_maincontent2_controllers import (
     ShiftAttendanceMainContent2Controller,
 )
+from core.attendance_symbol_bus import attendance_symbol_bus
 from ui.dialog.export_grid_list_dialog import ExportGridListDialog, NoteStyle
 from ui.dialog.title_dialog import MessageDialog
 
@@ -50,7 +50,7 @@ class ShiftAttendanceController:
         self._content1 = content1
         self._content2 = content2
         self._service = service or ShiftAttendanceService()
-        self._content2_logic = ShiftAttendanceMainContent2Controller()
+        self._mc2_controller = ShiftAttendanceMainContent2Controller()
         self._audit_mode: str = (
             "default"  # 'default' (dept/title) | 'selected' (checked)
         )
@@ -1016,8 +1016,7 @@ class ShiftAttendanceController:
 
         from_date, to_date = self._current_date_range()
         try:
-            # Load + enrich rows: compute hours/work + fill KV/KR symbols.
-            rows = self._content2_logic.list_rows_enriched(
+            rows = self._mc2_controller.list_attendance_audit_arranged(
                 from_date=from_date,
                 to_date=to_date,
                 employee_ids=employee_ids,
@@ -1419,24 +1418,9 @@ class ShiftAttendanceController:
                         except Exception:
                             pass
                     elif key in {"late", "early"}:
+                        # Hide display for Trễ/Sớm columns (keep raw value in UserRole).
                         raw_val = v
-                        txt_raw = "" if raw_val is None else str(raw_val).strip()
-                        minutes = 0
-                        if txt_raw:
-                            try:
-                                minutes = int(float(txt_raw))
-                            except Exception:
-                                minutes = 0
-
-                        if minutes <= 0:
-                            txt = "0"
-                        else:
-                            symb = late_symbol if key == "late" else early_symbol
-                            txt = str(minutes)
-                            if symb and symb not in txt:
-                                txt = f"{txt} {symb}".strip()
-
-                        item = QTableWidgetItem(txt)
+                        item = QTableWidgetItem("")
                         try:
                             item.setData(Qt.ItemDataRole.UserRole, raw_val)
                         except Exception:

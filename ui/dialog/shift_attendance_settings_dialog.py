@@ -137,13 +137,15 @@ class ShiftAttendanceSettingsDialog(QDialog):
             ("early", "Sớm"),
             ("hours", "Giờ"),
             ("work", "Công"),
-            ("leave", "KH"),
+            ("kh", "KH"),
             ("hours_plus", "Giờ +"),
             ("work_plus", "Công +"),
             ("leave_plus", "KH +"),
             ("tc1", "TC1"),
             ("tc2", "TC2"),
             ("tc3", "TC3"),
+            ("total", "Tổng"),
+            ("shift_code", "Ca"),
         ]
         for key, label in columns:
             self.cbo_column.addItem(label, key)
